@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI TradePro V9 (Auto-Quant Terminal)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root { --bg-dark: #020617; --panel-bg: rgba(15, 23, 42, 0.9); }
@@ -41,6 +41,11 @@
         </div>
         
         <div class="flex items-center gap-6 text-xs">
+            <div class="flex items-center gap-2">
+                <span id="broker-status" class="font-mono text-gray-500">● Offline</span>
+                <button id="broker-btn" onclick="app.toggleBroker()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-200 font-bold px-3 py-1.5 rounded text-[11px] uppercase tracking-wide transition disabled:opacity-50">Connect Broker</button>
+            </div>
+            <div class="h-6 w-px bg-slate-700"></div>
             <div class="text-right">
                 <p class="text-[9px] text-gray-400 uppercase">Daily Limit</p>
                 <p class="font-bold font-mono text-red-400">-₹5,000</p>
@@ -226,6 +231,9 @@
         };
         const formatCurr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
 
+        // Where backend.py is running. Change if you host it elsewhere.
+        const BACKEND_URL = 'http://127.0.0.1:8000';
+
         // Lightweight, non-blocking on-screen notice (replaces silent console.log failures).
         function notify(msg, kind = 'info') {
             let host = document.getElementById('toast-host');
@@ -402,11 +410,23 @@
             m: new MarketEngine(), c: null, ai: new AIEngine(),
             bal: CONSTANTS.STARTING_BALANCE, pos: [], hist: [],
             isAuto: false, lastAutoTrade: 0,
-            halted: false, autoTradeCount: 0
+            halted: false, autoTradeCount: 0,
+            session: { token: null, connected: false }
         };
 
         app.init = function() {
-            this.c = new ChartEngine('tvchart');
+            if (typeof LightweightCharts === 'undefined') {
+                notify('Chart library failed to load (check your internet / CDN). App halted.', 'error');
+                const chartEl = document.getElementById('tvchart');
+                if (chartEl) chartEl.innerHTML = '<div class="p-4 text-red-400 text-xs">Chart library did not load. Check your connection and reload.</div>';
+                return;
+            }
+            try {
+                this.c = new ChartEngine('tvchart');
+            } catch (e) {
+                notify('Chart init failed: ' + e.message, 'error');
+                return;
+            }
             this.m.init(); this.c.update(this.m.data);
             
             document.getElementById('index-selector')?.addEventListener('change', (e) => { this.m.cIdx = e.target.value; this.m.init(); this.c.update(this.m.data); this.resetUI(); });
@@ -612,6 +632,87 @@
             let w = this.hist.filter(h => h.net > 0);
             document.getElementById('stat-trades').innerText = this.hist.length;
             if(this.hist.length) document.getElementById('stat-winrate').innerText = `${((w.length/this.hist.length)*100).toFixed(0)}%`;
+        };
+
+        // --- BROKER (Angel One) CONNECTION ---------------------------------
+        // Credentials live in the backend's .env, never in the browser.
+        // "Connect" just asks the backend to start a broker session.
+        app.toggleBroker = function() {
+            return this.session.connected ? this.disconnectBroker() : this.connectBroker();
+        };
+
+        app.connectBroker = async function() {
+            const btn = document.getElementById('broker-btn');
+            btn.disabled = true; btn.textContent = 'Connecting…';
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/login`, { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.status !== 'success') {
+                    throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+                }
+                this.session = { token: data.sessionToken, connected: true };
+                this.setBrokerUI(true);
+                notify('Angel One connected.', 'info');
+            } catch (e) {
+                this.session = { token: null, connected: false };
+                this.setBrokerUI(false);
+                const hint = (e.message === 'Failed to fetch')
+                    ? 'Is backend.py running on ' + BACKEND_URL + '?'
+                    : e.message;
+                notify('Connect failed: ' + hint, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        app.disconnectBroker = async function() {
+            try {
+                await fetch(`${BACKEND_URL}/api/logout`, {
+                    method: 'POST',
+                    headers: { 'X-Session-Token': this.session.token || '' }
+                });
+            } catch (e) { /* ignore network errors on logout */ }
+            this.session = { token: null, connected: false };
+            this.setBrokerUI(false);
+            notify('Disconnected from broker.', 'info');
+        };
+
+        app.setBrokerUI = function(connected) {
+            const btn = document.getElementById('broker-btn');
+            const status = document.getElementById('broker-status');
+            if (connected) {
+                btn.textContent = 'Disconnect';
+                status.textContent = '● Angel One';
+                status.className = 'font-mono text-green-400';
+            } else {
+                btn.textContent = 'Connect Broker';
+                status.textContent = '● Offline';
+                status.className = 'font-mono text-gray-500';
+            }
+        };
+
+        // Ready for real orders, but NOT auto-called. The simulator's contracts
+        // don't carry real symboltokens, so a valid live order needs a real
+        // tradingsymbol + symboltoken from Angel One's instrument master first.
+        // Backend also stays in DRY_RUN until you set DRY_RUN=false in .env.
+        app.placeLiveOrder = async function(params) {
+            if (!this.session.connected) { notify('Connect the broker first.', 'warn'); return; }
+            const summary = `${params.transactiontype} ${params.quantity} × ${params.tradingsymbol} (${params.ordertype})`;
+            if (!window.confirm(`Send this order to Angel One?\n\n${summary}`)) return;
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/place-order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Session-Token': this.session.token },
+                    body: JSON.stringify({ ...params, confirm: true })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+                notify(data.dry_run ? 'Order simulated by backend (DRY_RUN).' : `Live order sent: ${data.orderId}`,
+                       data.dry_run ? 'warn' : 'info');
+                return data;
+            } catch (e) {
+                notify('Order failed: ' + e.message, 'error');
+            }
         };
 
         window.onload = () => app.init();

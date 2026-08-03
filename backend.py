@@ -224,6 +224,129 @@ def place_order(order: OrderDetails):
             raise HTTPException(500, detail=f"Order failed: {exc}") from exc
 
 
+# --------------------------------------------------------------------------- #
+# F&O market-data foundation (READ-ONLY — no orders here)                      #
+#                                                                             #
+# These endpoints turn the simulator into a real F&O tool by giving you       #
+# actual instrument tokens, option chains, and live prices. They place no     #
+# orders, so they're safe to test freely. NOTE: verify against your own       #
+# account once — Angel One occasionally tweaks field formats.                  #
+# --------------------------------------------------------------------------- #
+
+# Angel One publishes the full instrument list here (public, no auth needed).
+SCRIP_MASTER_URL = (
+    "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+)
+_INSTRUMENTS_CACHE = os.path.join(os.path.dirname(__file__), "instruments.json")
+_instruments: list[dict] = []
+
+
+def _load_instruments(force: bool = False) -> list[dict]:
+    """Download & cache the scrip master. Refreshes if older than a day."""
+    global _instruments
+    if _instruments and not force:
+        return _instruments
+
+    stale = True
+    if os.path.exists(_INSTRUMENTS_CACHE):
+        stale = (os.path.getmtime(_INSTRUMENTS_CACHE) < (__import__("time").time() - 86400))
+
+    if force or stale or not os.path.exists(_INSTRUMENTS_CACHE):
+        import urllib.request
+        log.info("Downloading Angel One scrip master…")
+        with urllib.request.urlopen(SCRIP_MASTER_URL, timeout=60) as resp:
+            raw = resp.read()
+        with open(_INSTRUMENTS_CACHE, "wb") as fh:
+            fh.write(raw)
+
+    import json as _json
+    with open(_INSTRUMENTS_CACHE, "rb") as fh:
+        _instruments = _json.load(fh)
+    log.info("Loaded %d instruments.", len(_instruments))
+    return _instruments
+
+
+@app.post("/api/instruments/refresh")
+def refresh_instruments():
+    try:
+        data = _load_instruments(force=True)
+        return {"status": "success", "count": len(data)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Could not refresh instruments: {exc}") from exc
+
+
+@app.get("/api/search")
+def search_symbol(query: str, exchange: str = "", limit: int = 25):
+    """Find real instruments (with tokens) by a name/symbol substring."""
+    data = _load_instruments()
+    q = query.upper()
+    out = []
+    for it in data:
+        if q in str(it.get("symbol", "")).upper() or q in str(it.get("name", "")).upper():
+            if exchange and str(it.get("exch_seg", "")).upper() != exchange.upper():
+                continue
+            out.append(it)
+            if len(out) >= limit:
+                break
+    return {"count": len(out), "results": out}
+
+
+@app.get("/api/option-chain")
+def option_chain(name: str, expiry: str = "", exch_seg: str = "NFO"):
+    """
+    Return CE/PE option instruments for an underlying (e.g. name=NIFTY).
+    `expiry` is an optional substring filter like '25JAN2025'.
+    Each item carries the real `token` and `symbol` you need to place an order.
+    """
+    data = _load_instruments()
+    name_u, exp_u, exch_u = name.upper(), expiry.upper(), exch_seg.upper()
+    ce, pe = [], []
+    for it in data:
+        if str(it.get("exch_seg", "")).upper() != exch_u:
+            continue
+        if str(it.get("name", "")).upper() != name_u:
+            continue
+        itype = str(it.get("instrumenttype", "")).upper()
+        if not itype.startswith("OPT"):
+            continue
+        sym = str(it.get("symbol", "")).upper()
+        if exp_u and exp_u not in str(it.get("expiry", "")).upper():
+            continue
+        row = {
+            "token": it.get("token"),
+            "symbol": it.get("symbol"),
+            "expiry": it.get("expiry"),
+            "strike": it.get("strike"),
+            "lotsize": it.get("lotsize"),
+        }
+        (ce if sym.endswith("CE") else pe if sym.endswith("PE") else []).append(row)
+    ce.sort(key=lambda r: float(r["strike"] or 0))
+    pe.sort(key=lambda r: float(r["strike"] or 0))
+    return {"name": name_u, "expiry": expiry, "ce_count": len(ce), "pe_count": len(pe), "CE": ce, "PE": pe}
+
+
+class LtpRequest(BaseModel):
+    exchange: str = "NFO"
+    tradingsymbol: str
+    symboltoken: str
+
+
+@app.post("/api/ltp", dependencies=[Depends(require_session)])
+def get_ltp(req: LtpRequest):
+    if _smart_api is None:
+        raise HTTPException(401, "Not logged in.")
+    with _lock:
+        try:
+            data = _smart_api.ltpData(req.exchange, req.tradingsymbol, req.symboltoken)
+            if isinstance(data, dict) and data.get("status"):
+                return {"status": "success", "data": data.get("data")}
+            raise HTTPException(502, detail=str(data))
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(500, detail=f"LTP failed: {exc}") from exc
+
+
 if __name__ == "__main__":
     import uvicorn
 
