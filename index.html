@@ -29,8 +29,12 @@
                 <h1 class="text-lg font-bold tracking-wider">TradePro <span class="text-[9px] bg-gradient-to-r from-blue-600 to-purple-600 px-1.5 py-0.5 rounded ml-1 uppercase">V9 Quant</span></h1>
             </div>
             <div class="h-5 w-px bg-slate-700"></div>
-            <div class="flex gap-4 text-xs font-mono">
-                <span class="text-green-400"><i class="fa-solid fa-circle text-[8px] mr-1 animate-pulse"></i>MARKET OPEN</span>
+            <div class="flex gap-4 text-xs font-mono items-center">
+                <span class="text-amber-400 font-bold" title="Prices are randomly generated in-browser. This is not a live market feed."><i class="fa-solid fa-flask text-[8px] mr-1"></i>SIMULATION</span>
+                <select id="index-selector" class="bg-slate-900 border border-slate-600 rounded px-1 py-0.5 text-white text-xs outline-none">
+                    <option value="NIFTY">NIFTY</option>
+                    <option value="BANKNIFTY">BANKNIFTY</option>
+                </select>
                 <span class="text-gray-400" id="clock-display">00:00:00</span>
                 <span class="text-blue-400" id="market-regime">Regime: Range</span>
             </div>
@@ -155,6 +159,10 @@
                         <div class="w-3 h-3 bg-white rounded-full absolute top-0.5 left-0.5 transition-transform" id="auto-trade-knob"></div>
                     </div>
                 </div>
+                <p class="mt-2 text-[8px] leading-tight text-gray-500">
+                    "Confidence" is a fixed rule score (EMA vs SMA + RSI + last candle), not a probability and not predictive.
+                    Signals run on simulated in-browser prices and place no real orders.
+                </p>
             </div>
 
             <!-- Position Sizing & Execution -->
@@ -210,8 +218,30 @@
 
     <script>
         // --- CONSTANTS & GLOBALS ---
-        const CONSTANTS = { STARTING_BALANCE: 100000, BROKERAGE: 20, TAX_PCT: 0.001, TICK_MS: 1000, CANDLE_MS: 5000 };
+        const CONSTANTS = {
+            STARTING_BALANCE: 100000, BROKERAGE: 20, TAX_PCT: 0.001,
+            TICK_MS: 1000, CANDLE_MS: 5000,
+            DAILY_LOSS_LIMIT: 5000,   // trading halts (incl. auto) once net P/L hits -this
+            MAX_AUTO_TRADES: 20       // safety cap on automated entries per session
+        };
         const formatCurr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
+
+        // Lightweight, non-blocking on-screen notice (replaces silent console.log failures).
+        function notify(msg, kind = 'info') {
+            let host = document.getElementById('toast-host');
+            if (!host) {
+                host = document.createElement('div');
+                host.id = 'toast-host';
+                host.className = 'fixed bottom-3 right-3 z-50 space-y-2';
+                document.body.appendChild(host);
+            }
+            const colors = { info: 'border-blue-500/60 text-blue-200', warn: 'border-amber-500/70 text-amber-200', error: 'border-red-500/70 text-red-200' };
+            const t = document.createElement('div');
+            t.className = `glass-panel px-3 py-2 text-xs border ${colors[kind] || colors.info} shadow-lg`;
+            t.textContent = msg;
+            host.appendChild(t);
+            setTimeout(() => t.remove(), 3500);
+        }
 
         // --- 1. ADVANCED MARKET ENGINE ---
         class MarketEngine {
@@ -325,7 +355,7 @@
         // --- 3. AUTO-QUANT AI ENGINE ---
         class AIEngine {
             calcRSI(data, period=14) {
-                if(data.length < period) return 50;
+                if(data.length <= period) return 50;  // need one bar before the window for diffs
                 let gains = 0, losses = 0;
                 for(let i=data.length-period; i<data.length; i++) {
                     let diff = data[i].close - data[i-1].close;
@@ -371,7 +401,8 @@
         const app = {
             m: new MarketEngine(), c: null, ai: new AIEngine(),
             bal: CONSTANTS.STARTING_BALANCE, pos: [], hist: [],
-            isAuto: false, lastAutoTrade: 0
+            isAuto: false, lastAutoTrade: 0,
+            halted: false, autoTradeCount: 0
         };
 
         app.init = function() {
@@ -438,19 +469,22 @@
         };
 
         app.toggleAutoTrade = function() {
+            if(this.halted && !this.isAuto) { notify("Trading is halted — cannot enable auto-trade.", 'error'); return; }
             this.isAuto = !this.isAuto;
             document.getElementById('auto-trade-bg').className = `w-8 h-4 rounded-full relative transition-colors ${this.isAuto ? 'bg-green-500' : 'bg-slate-700'}`;
             document.getElementById('auto-trade-knob').style.transform = this.isAuto ? 'translateX(16px)' : 'translateX(0)';
         };
 
         app.execute = function(aiSignal = null) {
+            if(this.halted) { notify("Trading halted — daily loss limit reached.", 'error'); return; }
+
             let idx = aiSignal ? (aiSignal.type==='CE'?0:1) : document.getElementById('strike-selector').value;
             let opt = this.m.indices[this.m.cIdx].opts[idx];
             let qty = (parseInt(document.getElementById('lot-size').value) || 1) * this.m.indices[this.m.cIdx].lot;
             let val = opt.p * qty + CONSTANTS.BROKERAGE;
-            
-            if(val > this.bal) return console.log("Margin Low");
-            
+
+            if(val > this.bal) { notify(`Insufficient margin: need ${formatCurr(val)}, have ${formatCurr(this.bal)}.`, 'warn'); return; }
+
             this.bal -= val;
             this.pos.push({
                 id: Date.now(), sym: `${this.m.cIdx} ${opt.k} ${opt.type}`, idx: idx, qty: qty, 
@@ -476,7 +510,7 @@
         };
 
         app.tick = function() {
-            let s = this.m.tick();
+            let s = this.m.tick() || 0;
             let lc = this.m.data[this.m.data.length-1];
             this.c.updateTick(lc);
             
@@ -505,10 +539,18 @@
                 document.getElementById('ai-trend').innerText = sig.trend;
                 document.getElementById('ai-reason').innerText = sig.reason;
 
-                // AUTO TRADE LOGIC
-                if(this.isAuto && sig.conf > 90 && Date.now() - this.lastAutoTrade > 30000 && this.pos.length === 0) {
+                // AUTO TRADE LOGIC (simulation only — never routes to a live broker)
+                if(this.isAuto && !this.halted && sig.conf > 90
+                   && Date.now() - this.lastAutoTrade > 30000
+                   && this.pos.length === 0
+                   && this.autoTradeCount < CONSTANTS.MAX_AUTO_TRADES) {
                     this.execute(sig);
                     this.lastAutoTrade = Date.now();
+                    this.autoTradeCount++;
+                    if(this.autoTradeCount >= CONSTANTS.MAX_AUTO_TRADES) {
+                        this.toggleAutoTrade();
+                        notify("Auto-trade cap reached — switched off.", 'warn');
+                    }
                 }
             }
 
@@ -536,6 +578,14 @@
             document.getElementById('net-pnl').innerText = formatCurr(totalNet);
             document.getElementById('net-pnl').className = `font-bold font-mono text-lg ${totalNet > 0 ? 'text-green-400' : (totalNet<0?'text-red-400':'text-gray-400')}`;
             document.getElementById('margin-display').innerText = formatCurr(this.bal);
+
+            // Enforce the daily loss limit (previously just a decorative label).
+            if(!this.halted && totalNet <= -CONSTANTS.DAILY_LOSS_LIMIT) {
+                this.halted = true;
+                if(this.isAuto) this.toggleAutoTrade();
+                notify(`Daily loss limit (${formatCurr(-CONSTANTS.DAILY_LOSS_LIMIT)}) hit. Trading halted.`, 'error');
+                document.getElementById('init-buy-btn').disabled = true;
+            }
         };
 
         app.render = function() {
