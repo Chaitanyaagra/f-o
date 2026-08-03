@@ -347,6 +347,39 @@ def get_ltp(req: LtpRequest):
             raise HTTPException(500, detail=f"LTP failed: {exc}") from exc
 
 
+class CandleRequest(BaseModel):
+    exchange: str = "NSE"
+    symboltoken: str
+    interval: str = "FIVE_MINUTE"   # ONE_MINUTE, FIVE_MINUTE, FIFTEEN_MINUTE, ONE_DAY ...
+    fromdate: str                   # "YYYY-MM-DD HH:MM"
+    todate: str                     # "YYYY-MM-DD HH:MM"
+
+
+@app.post("/api/candles", dependencies=[Depends(require_session)])
+def get_candles(req: CandleRequest):
+    """Historical OHLC candles for real charting. Read-only."""
+    if _smart_api is None:
+        raise HTTPException(401, "Not logged in.")
+    params = {
+        "exchange": req.exchange,
+        "symboltoken": req.symboltoken,
+        "interval": req.interval,
+        "fromdate": req.fromdate,
+        "todate": req.todate,
+    }
+    with _lock:
+        try:
+            data = _smart_api.getCandleData(params)
+            if isinstance(data, dict) and data.get("status"):
+                # Angel returns rows: [timestamp, open, high, low, close, volume]
+                return {"status": "success", "candles": data.get("data", [])}
+            raise HTTPException(502, detail=str(data))
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(500, detail=f"Candle fetch failed: {exc}") from exc
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -30,12 +30,15 @@
             </div>
             <div class="h-5 w-px bg-slate-700"></div>
             <div class="flex gap-4 text-xs font-mono items-center">
-                <span class="text-amber-400 font-bold" title="Prices are randomly generated in-browser. This is not a live market feed."><i class="fa-solid fa-flask text-[8px] mr-1"></i>SIMULATION</span>
+                <span id="data-mode-badge" class="text-amber-400 font-bold" title="Prices are randomly generated in-browser. This is not a live market feed."><i class="fa-solid fa-flask text-[8px] mr-1"></i>SIMULATION</span>
+                <button id="live-toggle" onclick="app.toggleLive()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide transition">Go Live</button>
                 <select id="index-selector" class="bg-slate-900 border border-slate-600 rounded px-1 py-0.5 text-white text-xs outline-none">
                     <option value="NIFTY">NIFTY</option>
                     <option value="BANKNIFTY">BANKNIFTY</option>
                 </select>
                 <span class="text-gray-400" id="clock-display">00:00:00</span>
+                <span id="market-status" class="font-bold text-gray-400">—</span>
+                <button id="practice-toggle" onclick="app.togglePractice()" class="hidden bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-300 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide transition">Practice</button>
                 <span class="text-blue-400" id="market-regime">Regime: Range</span>
             </div>
         </div>
@@ -155,6 +158,7 @@
                         </div>
                     </div>
                     <p class="text-[9px] font-mono text-gray-400 border-t border-slate-700 pt-1" id="ai-reason">Initializing technicals...</p>
+                    <p class="text-[9px] font-mono text-blue-300 mt-1" id="ai-hold"><i class="fa-solid fa-hourglass-half mr-1"></i>Hold: —</p>
                 </div>
                 
                 <!-- AUTO TRADE TOGGLE -->
@@ -168,6 +172,26 @@
                     "Confidence" is a fixed rule score (EMA vs SMA + RSI + last candle), not a probability and not predictive.
                     Signals run on simulated in-browser prices and place no real orders.
                 </p>
+            </div>
+
+            <!-- EXPIRY GUIDE (educational — matches expiry to holding plan, not a profit call) -->
+            <div class="glass-panel p-3 shrink-0">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="font-bold text-sm text-gray-200"><i class="fa-solid fa-calendar-day text-blue-400 mr-1"></i>Expiry Guide</h2>
+                    <select id="hold-horizon" class="bg-slate-900 border border-slate-600 rounded px-1 py-0.5 text-white text-[11px] outline-none">
+                        <option value="intraday">Intraday / expiry-day</option>
+                        <option value="swing">Swing (1-3 days)</option>
+                        <option value="positional">Positional (1 week+)</option>
+                    </select>
+                </div>
+                <div class="bg-slate-900 p-2 rounded border border-slate-700">
+                    <p class="text-xs font-bold text-blue-300" id="expiry-pick">—</p>
+                    <p class="text-[10px] text-gray-400 mt-1 leading-snug" id="expiry-why">—</p>
+                    <p class="text-[8px] text-gray-500 mt-1 leading-tight border-t border-slate-700 pt-1">
+                        Match expiry to how long you'll hold. This is general guidance, not a profit prediction —
+                        confirm the actual live expiry date in your broker before trading.
+                    </p>
+                </div>
             </div>
 
             <!-- Position Sizing & Execution -->
@@ -233,6 +257,13 @@
 
         // Where backend.py is running. Change if you host it elsewhere.
         const BACKEND_URL = 'http://127.0.0.1:8000';
+
+        // Angel One spot-index tokens for charting. Verify via /api/search if a
+        // chart doesn't load (exchange/token formats can change).
+        const INDEX_CHART = {
+            NIFTY:     { exchange: 'NSE', symboltoken: '99926000' },
+            BANKNIFTY: { exchange: 'NSE', symboltoken: '99926009' }
+        };
 
         // Lightweight, non-blocking on-screen notice (replaces silent console.log failures).
         function notify(msg, kind = 'info') {
@@ -362,6 +393,13 @@
 
         // --- 3. AUTO-QUANT AI ENGINE ---
         class AIEngine {
+            constructor() {
+                this.pendingDir = 0;   // last raw direction seen
+                this.streak = 0;       // consecutive reads agreeing with pendingDir
+                this.committedDir = 0;  // the STABLE recommendation shown to the user
+                this.CONFIRM = 5;      // reads a new direction must persist before it flips the call
+            }
+
             calcRSI(data, period=14) {
                 if(data.length <= period) return 50;  // need one bar before the window for diffs
                 let gains = 0, losses = 0;
@@ -374,33 +412,79 @@
                 return 100 - (100/(1+rs));
             }
 
+            // Indicators computed independently of the chart library, so the
+            // signal engine keeps working even if the chart fails to load.
+            calcEMA(closes, period) {
+                if(!closes.length) return 0;
+                const k = 2/(period+1);
+                let e = closes[0];
+                for(let i=1;i<closes.length;i++) e = closes[i]*k + e*(1-k);
+                return e;
+            }
+            calcSMA(closes, period) {
+                if(closes.length < period) return closes.reduce((a,b)=>a+b,0)/(closes.length||1);
+                let sum=0; for(let i=closes.length-period;i<closes.length;i++) sum+=closes[i];
+                return sum/period;
+            }
+
             analyze(chart, market) {
                 if(market.data.length < 25) return null;
+                const closes = market.data.map(d => d.close);
                 const rsi = this.calcRSI(market.data);
+                const ema = this.calcEMA(closes, 9);
+                const sma = this.calcSMA(closes, 21);
                 document.getElementById('rsi-display').innerText = `RSI: ${rsi.toFixed(0)}`;
-                
-                let isBull = chart.lastEma > chart.lastSma;
-                let rsiSignal = rsi > 60 ? 1 : (rsi < 40 ? -1 : 0);
-                
-                // Candlestick basic read (last closed candle)
-                let lc = market.data[market.data.length-2];
-                let isGreen = lc.close > lc.open;
 
-                let conf = 50;
-                let reasons = [];
+                const price = closes[closes.length-1] || 1;
+                const gap = ema - sma;
+                const band = price * 0.0006;   // neutral zone: ignore tiny EMA/SMA gaps (noise)
 
-                if(isBull && isGreen) { conf += 20; reasons.push("EMA>SMA"); }
-                else if(!isBull && !isGreen) { conf += 20; reasons.push("EMA<SMA"); }
+                // Raw read: +1 bull, -1 bear, 0 neutral (inside the band)
+                let rawDir = gap > band ? 1 : (gap < -band ? -1 : 0);
 
-                if(rsiSignal === 1 && isBull) { conf += 25; reasons.push("RSI Bullish"); }
-                else if(rsiSignal === -1 && !isBull) { conf += 25; reasons.push("RSI Bearish"); }
+                // Persistence: a new non-neutral direction must repeat CONFIRM times
+                // in a row before it becomes the committed (shown) recommendation.
+                if (rawDir !== 0 && rawDir === this.pendingDir) {
+                    this.streak++;
+                } else {
+                    this.pendingDir = rawDir;
+                    this.streak = 1;
+                }
+                if (rawDir !== 0 && this.streak >= this.CONFIRM) {
+                    this.committedDir = rawDir;   // flip only after confirmation
+                }
+                // If we drift into the neutral band and stay there, stand down.
+                if (rawDir === 0 && this.streak >= this.CONFIRM) {
+                    this.committedDir = 0;
+                }
+
+                const dir = this.committedDir;
+
+                // No confirmed edge -> honest WAIT instead of a coin-flip signal.
+                if (dir === 0) {
+                    return {
+                        action: 'WAIT', type: null, conf: 0,
+                        trend: 'Neutral / no clear edge',
+                        reason: 'EMA and SMA too close — waiting for a confirmed trend'
+                    };
+                }
+
+                const isBull = dir > 0;
+                const isGreen = market.data[market.data.length-2].close > market.data[market.data.length-2].open;
+                const rsiSignal = rsi > 60 ? 1 : (rsi < 40 ? -1 : 0);
+
+                // Confidence reflects how much agrees; capped and never framed as a probability.
+                let conf = 55, reasons = [isBull ? 'EMA>SMA (confirmed)' : 'EMA<SMA (confirmed)'];
+                if (isBull === isGreen) { conf += 15; reasons.push('candle agrees'); }
+                if ((rsiSignal === 1 && isBull) || (rsiSignal === -1 && !isBull)) { conf += 20; reasons.push('RSI agrees'); }
+                conf = Math.min(95, conf);
 
                 return {
                     action: isBull ? 'BUY CE' : 'BUY PE',
                     type: isBull ? 'CE' : 'PE',
-                    conf: Math.min(99, conf),
+                    conf,
                     trend: isBull ? 'Bullish' : 'Bearish',
-                    reason: reasons.join(" + ") || "Consolidating"
+                    reason: reasons.join(' + ')
                 };
             }
         }
@@ -411,21 +495,24 @@
             bal: CONSTANTS.STARTING_BALANCE, pos: [], hist: [],
             isAuto: false, lastAutoTrade: 0,
             halted: false, autoTradeCount: 0,
-            session: { token: null, connected: false }
+            session: { token: null, connected: false },
+            dataMode: 'SIM', liveTimer: null, practiceMode: false
         };
 
         app.init = function() {
+            const NullChart = { update(){}, updateTick(){}, lastEma:0, lastSma:0 };
             if (typeof LightweightCharts === 'undefined') {
-                notify('Chart library failed to load (check your internet / CDN). App halted.', 'error');
-                const chartEl = document.getElementById('tvchart');
-                if (chartEl) chartEl.innerHTML = '<div class="p-4 text-red-400 text-xs">Chart library did not load. Check your connection and reload.</div>';
-                return;
-            }
-            try {
-                this.c = new ChartEngine('tvchart');
-            } catch (e) {
-                notify('Chart init failed: ' + e.message, 'error');
-                return;
+                notify('Chart library load nahi hui (internet/CDN check karo). Signal engine phir bhi chal raha hai.', 'warn');
+                const el = document.getElementById('tvchart');
+                if (el) el.innerHTML = '<div class="p-4 text-amber-400 text-xs">Chart offline — signals still running below.</div>';
+                this.c = NullChart;
+            } else {
+                try {
+                    this.c = new ChartEngine('tvchart');
+                } catch (e) {
+                    notify('Chart init fail: ' + e.message + ' — signals still running.', 'warn');
+                    this.c = NullChart;
+                }
             }
             this.m.init(); this.c.update(this.m.data);
             
@@ -434,6 +521,8 @@
             document.getElementById('lot-size').addEventListener('input', () => this.updateUI());
             document.getElementById('sl-points').addEventListener('input', () => this.updateUI());
             document.getElementById('init-buy-btn').addEventListener('click', () => this.execute());
+            document.getElementById('hold-horizon').addEventListener('change', () => this.updateExpiryGuide());
+            this.updateExpiryGuide();
             
             // Tabs setup
             ['positions','history','analytics'].forEach(t => {
@@ -445,8 +534,9 @@
 
             this.resetUI();
             setInterval(() => this.tick(), CONSTANTS.TICK_MS);
-            setInterval(() => { this.m.newCandle(); this.c.update(this.m.data); }, CONSTANTS.CANDLE_MS);
-            setInterval(() => document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('en-IN', {hour12:false}), 1000);
+            setInterval(() => { if(this.dataMode!=='LIVE' && (this.isMarketOpen() || this.practiceMode)){ this.m.newCandle(); this.c.update(this.m.data); } }, CONSTANTS.CANDLE_MS);
+            setInterval(() => { document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('en-IN', {hour12:false}); this.updateMarketStatus(); }, 1000);
+            this.updateMarketStatus();
         };
 
         app.resetUI = function() {
@@ -530,18 +620,33 @@
         };
 
         app.tick = function() {
-            let s = this.m.tick() || 0;
-            let lc = this.m.data[this.m.data.length-1];
-            this.c.updateTick(lc);
-            
-            let pEl = document.getElementById('index-price');
-            pEl.innerHTML = `${lc.close.toFixed(2)} <i class="fa-solid fa-caret-${s>=0?'up':'down'}"></i>`;
-            pEl.className = `text-xl font-bold font-mono ${s>=0?'text-green-400':'text-red-500'}`;
-            
-            // Watchlist mock updates
-            document.getElementById('wl-nifty-px').innerText = lc.close.toFixed(2);
-            document.getElementById('wl-bank-px').innerText = (this.m.indices['BANKNIFTY'].px + (s*2)).toFixed(2);
-            
+            if (this.dataMode === 'LIVE') {
+                // Live data is refreshed by the poller; here we just reflect the latest price.
+                if (this.m.data.length) {
+                    let lc = this.m.data[this.m.data.length-1];
+                    let pEl = document.getElementById('index-price');
+                    pEl.innerText = lc.close.toFixed(2);
+                    pEl.className = 'text-xl font-bold font-mono text-blue-300';
+                }
+            } else {
+                const frozen = !this.isMarketOpen() && !this.practiceMode;
+                let s = 0;
+                if (!frozen) s = this.m.tick() || 0;
+                let lc = this.m.data[this.m.data.length-1];
+                if (!frozen) this.c.updateTick(lc);
+
+                let pEl = document.getElementById('index-price');
+                if (frozen) {
+                    pEl.innerText = lc.close.toFixed(2);
+                    pEl.className = 'text-xl font-bold font-mono text-gray-400';
+                } else {
+                    pEl.innerHTML = `${lc.close.toFixed(2)} <i class="fa-solid fa-caret-${s>=0?'up':'down'}"></i>`;
+                    pEl.className = `text-xl font-bold font-mono ${s>=0?'text-green-400':'text-red-500'}`;
+                    document.getElementById('wl-nifty-px').innerText = lc.close.toFixed(2);
+                    document.getElementById('wl-bank-px').innerText = (this.m.indices['BANKNIFTY'].px + (s*2)).toFixed(2);
+                }
+            }
+
             Array.from(document.getElementById('strike-selector').options).forEach(opt => {
                 let data = this.m.indices[this.m.cIdx].opts[opt.value];
                 opt.innerText = `${this.m.cIdx} ${data.k} ${data.type} (₹${data.p.toFixed(2)})`;
@@ -551,16 +656,23 @@
             // AI Logic
             let sig = this.ai.analyze(this.c, this.m);
             if(sig) {
-                let pnl = document.getElementById('ai-panel');
-                pnl.className = `glass-panel p-3 shrink-0 relative overflow-hidden transition-all duration-300 shadow-[0_0_15px_${sig.type==='CE'?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)'}]`;
+                const isWait = sig.type === null;
+                const glow = isWait ? 'rgba(100,116,139,0.12)' : (sig.type==='CE'?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)');
+                document.getElementById('ai-panel').className = `glass-panel p-3 shrink-0 relative overflow-hidden transition-all duration-300 shadow-[0_0_15px_${glow}]`;
                 document.getElementById('ai-action').innerText = sig.action;
-                document.getElementById('ai-action').className = `text-xl font-black tracking-wide ${sig.type==='CE'?'text-green-400':'text-red-400'}`;
-                document.getElementById('ai-confidence').innerText = `Conf: ${sig.conf}%`;
+                document.getElementById('ai-action').className = `text-xl font-black tracking-wide ${isWait ? 'text-gray-400' : (sig.type==='CE'?'text-green-400':'text-red-400')}`;
+                document.getElementById('ai-confidence').innerText = isWait ? 'Conf: —' : `Conf: ${sig.conf}%`;
                 document.getElementById('ai-trend').innerText = sig.trend;
                 document.getElementById('ai-reason').innerText = sig.reason;
+                if (isWait) {
+                    document.getElementById('ai-hold').innerHTML = `<i class="fa-solid fa-hourglass-half mr-1"></i>Hold: — (no active signal)`;
+                } else {
+                    const hold = this.estimateHoldTime();
+                    document.getElementById('ai-hold').innerHTML = `<i class="fa-solid fa-hourglass-half mr-1"></i>Hold: ~${hold.resolve} · time-stop: ${hold.stop}`;
+                }
 
                 // AUTO TRADE LOGIC (simulation only — never routes to a live broker)
-                if(this.isAuto && !this.halted && sig.conf > 90
+                if(this.isAuto && !this.halted && !isWait && sig.conf > 90
                    && Date.now() - this.lastAutoTrade > 30000
                    && this.pos.length === 0
                    && this.autoTradeCount < CONSTANTS.MAX_AUTO_TRADES) {
@@ -712,6 +824,176 @@
                 return data;
             } catch (e) {
                 notify('Order failed: ' + e.message, 'error');
+            }
+        };
+
+        // Estimate how long a trade is likely to stay open — a TIME BUDGET, not a
+        // profit prediction. Uses current volatility + your SL/target to guess when
+        // the trade will hit a barrier, and caps it by your holding horizon.
+        app.estimateHoldTime = function() {
+            const sl  = parseFloat(document.getElementById('sl-points').value)  || 15;
+            const tgt = parseFloat(document.getElementById('tgt-points').value) || 30;
+            const data = this.m.data;
+
+            // Option premium volatility per candle (~half of index move; floored).
+            let n = Math.min(15, data.length - 1), sum = 0, cnt = 0;
+            for (let i = data.length - n; i < data.length; i++) {
+                if (i > 0) { sum += Math.abs(data[i].close - data[i - 1].close); cnt++; }
+            }
+            const idxVol = cnt ? sum / cnt : 5;
+            const sigma = Math.max(0.5, idxVol * 0.5);
+
+            // Random-walk first-passage to the nearer barrier ~ (distance/sigma)^2 candles.
+            const d = Math.min(sl, tgt);
+            const candles = Math.pow(d / sigma, 2);
+            const secs = candles * (CONSTANTS.CANDLE_MS / 1000);
+
+            const fmt = (s) => s < 90 ? `${Math.round(s)}s`
+                             : s < 5400 ? `${Math.round(s / 60)} min`
+                             : `${(s / 3600).toFixed(1)} hr`;
+            const resolve = `${fmt(secs * 0.6)}–${fmt(secs * 1.8)} at current volatility`;
+
+            const stops = {
+                intraday:  'close by session end (avoid last hour on expiry day)',
+                swing:     'exit within ~2-3 trading days',
+                positional:'exit within ~1 week / before monthly expiry'
+            };
+            const h = document.getElementById('hold-horizon')?.value || 'intraday';
+            return { resolve, stop: stops[h] || stops.intraday };
+        };
+
+        // Educational expiry guidance: maps holding horizon -> near/far expiry
+        // with the real tradeoff. It does NOT claim any expiry will be profitable.
+        app.updateExpiryGuide = function() {
+            const h = document.getElementById('hold-horizon').value;
+            const map = {
+                intraday: {
+                    pick: 'Nearest weekly / expiry-day contract',
+                    why: 'Cheapest premium and fastest move (high gamma), so a correct intraday call pays quickly. But theta is brutal — near expiry, OTM options can lose 80-90% in the last hour. Needs precise timing and tight stop-loss; smallest margin for error.'
+                },
+                swing: {
+                    pick: 'Next weekly (a few days to expiry)',
+                    why: 'A middle ground: still reasonably priced but not same-day theta collapse, so your view gets 2-3 days to play out. Good when you expect a move soon but not today.'
+                },
+                positional: {
+                    pick: 'Monthly expiry',
+                    why: 'Slowest time-decay and more room for the trend to develop, so overnight/multi-day holds bleed less on theta. Costs more premium and ties up more capital; most liquid for holding.'
+                }
+            };
+            const r = map[h] || map.intraday;
+            document.getElementById('expiry-pick').innerText = r.pick;
+            document.getElementById('expiry-why').innerText = r.why;
+        };
+
+        // --- REAL MARKET HOURS (IST) -------------------------------------------
+        // NSE regular session: Mon-Fri, 09:15-15:30 IST. (Exchange holidays are
+        // NOT included here — add them to HOLIDAYS below if you want them honored.)
+        const HOLIDAYS = new Set([ /* 'YYYY-MM-DD', ... */ ]);
+        app.isMarketOpen = function() {
+            const now = new Date();
+            const p = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Asia/Kolkata', weekday: 'short',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            }).formatToParts(now);
+            const g = t => (p.find(x => x.type === t) || {}).value;
+            const wd = g('weekday');
+            const ymd = `${g('year')}-${g('month')}-${g('day')}`;
+            const mins = ((+g('hour')) % 24) * 60 + (+g('minute'));
+            const isWeekday = wd !== 'Sat' && wd !== 'Sun';
+            const isHoliday = HOLIDAYS.has(ymd);
+            return isWeekday && !isHoliday && mins >= (9*60+15) && mins <= (15*60+30);
+        };
+
+        app.updateMarketStatus = function() {
+            const open = this.isMarketOpen();
+            const el = document.getElementById('market-status');
+            const pb = document.getElementById('practice-toggle');
+            if (this.dataMode === 'LIVE') {
+                el.textContent = open ? 'MARKET OPEN' : 'MARKET CLOSED';
+                el.className = 'font-bold ' + (open ? 'text-green-400' : 'text-gray-500');
+                pb.classList.add('hidden');
+                return;
+            }
+            // SIM mode
+            pb.classList.remove('hidden');
+            if (open) { el.textContent = 'MARKET OPEN'; el.className = 'font-bold text-green-400'; }
+            else if (this.practiceMode) { el.textContent = 'CLOSED · practice on'; el.className = 'font-bold text-amber-400'; }
+            else { el.textContent = 'MARKET CLOSED · paused'; el.className = 'font-bold text-gray-500'; }
+            pb.textContent = this.practiceMode ? 'Practice: On' : 'Practice: Off';
+        };
+
+        app.togglePractice = function() {
+            this.practiceMode = !this.practiceMode;
+            this.updateMarketStatus();
+            notify(this.practiceMode ? 'Practice mode on — sim runs even when market is closed.'
+                                     : 'Practice mode off — sim pauses when market is closed.', 'info');
+        };
+
+        // --- LIVE DATA MODE (real Angel One candles instead of the simulator) ----
+        app.toggleLive = function() {
+            return this.dataMode === 'LIVE' ? this.disableLive() : this.enableLive();
+        };
+
+        app.enableLive = async function() {
+            if (!this.session.connected) { notify('Pehle "Connect Broker" karo.', 'warn'); return; }
+            const btn = document.getElementById('live-toggle');
+            btn.disabled = true; btn.textContent = 'Loading…';
+            const ok = await this.fetchLiveCandles();
+            btn.disabled = false;
+            if (!ok) { btn.textContent = 'Go Live'; return; }   // fetchLiveCandles already notified
+
+            this.dataMode = 'LIVE';
+            const badge = document.getElementById('data-mode-badge');
+            badge.innerHTML = '<i class="fa-solid fa-satellite-dish text-[8px] mr-1"></i>LIVE';
+            badge.className = 'text-green-400 font-bold';
+            btn.textContent = 'Stop Live';
+            notify('Live chart on. Refreshing every 20s.', 'info');
+            this.liveTimer = setInterval(() => this.fetchLiveCandles(), 20000);
+        };
+
+        app.disableLive = function() {
+            if (this.liveTimer) { clearInterval(this.liveTimer); this.liveTimer = null; }
+            this.dataMode = 'SIM';
+            const badge = document.getElementById('data-mode-badge');
+            badge.innerHTML = '<i class="fa-solid fa-flask text-[8px] mr-1"></i>SIMULATION';
+            badge.className = 'text-amber-400 font-bold';
+            document.getElementById('live-toggle').textContent = 'Go Live';
+            this.m.init(); this.c.update(this.m.data);
+            notify('Back to simulation.', 'info');
+        };
+
+        app.fetchLiveCandles = async function() {
+            const idx = INDEX_CHART[this.m.cIdx];
+            if (!idx) { notify('Is index ke liye chart token nahi mila.', 'error'); return false; }
+            const pad = n => String(n).padStart(2, '0');
+            const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+            const to = new Date();
+            const from = new Date(to.getTime() - 5*24*3600*1000);   // last 5 days
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/candles`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Session-Token': this.session.token },
+                    body: JSON.stringify({ exchange: idx.exchange, symboltoken: idx.symboltoken,
+                                           interval: 'FIVE_MINUTE', fromdate: fmt(from), todate: fmt(to) })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.status !== 'success') throw new Error(data.detail || `HTTP ${res.status}`);
+                const rows = (data.candles || []);
+                if (!rows.length) throw new Error('No candles returned (market closed or bad token?)');
+                // rows: [timestamp, open, high, low, close, volume]
+                const mapped = rows.slice(-90).map(r => ({
+                    time: Math.floor(new Date(r[0]).getTime()/1000),
+                    open: +r[1], high: +r[2], low: +r[3], close: +r[4]
+                }));
+                this.m.data = mapped;
+                this.c.update(this.m.data);
+                this.updateUI();
+                return true;
+            } catch (e) {
+                const hint = e.message === 'Failed to fetch' ? 'backend chal raha hai?' : e.message;
+                notify('Live candles fail: ' + hint, 'error');
+                return false;
             }
         };
 
