@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI TradePro V9 (Auto-Quant Terminal)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --bg-dark: #020617; --panel-bg: rgba(15, 23, 42, 0.9); }
+        body { background-color: var(--bg-dark); color: #f8fafc; font-family: 'Inter', sans-serif; overflow: hidden; }
+        .glass-panel { background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
+        * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+        .btn-glow:hover:not(:disabled) { box-shadow: 0 0 15px rgba(34,197,94,0.4); transform: translateY(-1px); }
+        .btn-glow:disabled { opacity: 0.5; cursor: not-allowed; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #60a5fa; font-weight: bold; }
+        .tab-inactive { color: #64748b; font-weight: 500; }
+        .tab-inactive:hover { color: #cbd5e1; }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-2 gap-2 text-sm selection:bg-blue-500/30">
+
+    <!-- HEADER -->
+    <header class="glass-panel p-3 flex justify-between items-center shrink-0 shadow-md">
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-bolt text-xl text-yellow-500"></i>
+                <h1 class="text-lg font-bold tracking-wider">TradePro <span class="text-[9px] bg-gradient-to-r from-blue-600 to-purple-600 px-1.5 py-0.5 rounded ml-1 uppercase">V9 Quant</span></h1>
+            </div>
+            <div class="h-5 w-px bg-slate-700"></div>
+            <div class="flex gap-4 text-xs font-mono">
+                <span class="text-green-400"><i class="fa-solid fa-circle text-[8px] mr-1 animate-pulse"></i>MARKET OPEN</span>
+                <span class="text-gray-400" id="clock-display">00:00:00</span>
+                <span class="text-blue-400" id="market-regime">Regime: Range</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-6 text-xs">
+            <div class="text-right">
+                <p class="text-[9px] text-gray-400 uppercase">Daily Limit</p>
+                <p class="font-bold font-mono text-red-400">-₹5,000</p>
+            </div>
+            <div class="h-6 w-px bg-slate-700"></div>
+            <div class="text-right">
+                <p class="text-[9px] text-gray-400 uppercase">Net P/L</p>
+                <p class="font-bold font-mono text-lg transition-colors" id="net-pnl">₹0.00</p>
+            </div>
+            <div class="text-right">
+                <p class="text-[9px] text-gray-400 uppercase">Available Capital</p>
+                <p class="text-base font-bold font-mono text-blue-400" id="margin-display">₹1,00,000.00</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- WORKSPACE -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2 min-h-0">
+        
+        <!-- LEFT PANEL (Watchlist) -->
+        <div class="hidden lg:flex lg:col-span-2 glass-panel flex-col p-2">
+            <h3 class="text-xs font-bold text-gray-400 uppercase mb-2 border-b border-slate-700 pb-1">Watchlist</h3>
+            <div id="watchlist" class="space-y-2 flex-1 overflow-y-auto">
+                <div class="bg-slate-800/50 p-2 rounded border border-blue-500/30 cursor-pointer">
+                    <div class="flex justify-between font-bold text-xs"><span class="text-blue-300">NIFTY</span><span id="wl-nifty-px" class="text-green-400">0.00</span></div>
+                    <div class="flex justify-between text-[9px] text-gray-400 mt-1"><span>Vol: 1.2M</span><span id="wl-nifty-chg">+0.00%</span></div>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded border border-transparent hover:border-slate-600 cursor-pointer">
+                    <div class="flex justify-between font-bold text-xs"><span class="text-gray-300">BANKNIFTY</span><span id="wl-bank-px">0.00</span></div>
+                    <div class="flex justify-between text-[9px] text-gray-400 mt-1"><span>Vol: 850K</span><span id="wl-bank-chg">0.00%</span></div>
+                </div>
+                <div class="bg-slate-800/50 p-2 rounded border border-transparent hover:border-slate-600 cursor-pointer opacity-50">
+                    <div class="flex justify-between font-bold text-xs"><span class="text-gray-300">FINNIFTY</span><span>23150.00</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER PANEL (Chart & Tradebook) -->
+        <div class="lg:col-span-7 flex flex-col gap-2 min-h-0">
+            
+            <!-- Chart Container -->
+            <div class="glass-panel p-1 flex flex-col h-[65%]">
+                <div class="flex justify-between items-center px-2 py-1 border-b border-slate-700/50 mb-1">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xl font-bold font-mono text-green-400" id="index-price">0.00</span>
+                    </div>
+                    <div class="flex gap-2 text-[9px] uppercase font-bold">
+                        <span class="text-blue-400 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-500/30">EMA 9</span>
+                        <span class="text-orange-400 bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-500/30">SMA 21</span>
+                        <span class="text-purple-400 bg-purple-900/20 px-1.5 py-0.5 rounded border border-purple-500/30" id="rsi-display">RSI: 50</span>
+                    </div>
+                </div>
+                <div id="tvchart" class="flex-1 w-full rounded"></div>
+            </div>
+
+            <!-- Trade Book -->
+            <div class="glass-panel flex flex-col h-[35%] overflow-hidden">
+                <div class="flex gap-4 p-2 border-b border-slate-700/50 bg-slate-900/50">
+                    <button id="tab-positions" class="tab-active text-[11px] pb-1">Positions (<span id="pos-count">0</span>)</button>
+                    <button id="tab-history" class="tab-inactive text-[11px] pb-1">Order History</button>
+                    <button id="tab-analytics" class="tab-inactive text-[11px] pb-1">Analytics</button>
+                </div>
+                
+                <div id="view-positions" class="flex-1 overflow-y-auto p-1">
+                    <table class="w-full text-left text-[10px] text-gray-300 whitespace-nowrap">
+                        <thead class="text-[9px] text-gray-500 uppercase sticky top-0 bg-[#0f172a]">
+                            <tr><th>Contract</th><th>Qty</th><th>Avg</th><th>LTP</th><th>MTM P/L</th><th>Action</th></tr>
+                        </thead>
+                        <tbody id="positions-body"></tbody>
+                    </table>
+                </div>
+
+                <div id="view-history" class="flex-1 overflow-y-auto p-1 hidden">
+                    <table class="w-full text-left text-[10px] text-gray-300 whitespace-nowrap">
+                        <thead class="text-[9px] text-gray-500 uppercase sticky top-0 bg-[#0f172a]">
+                            <tr><th>Time</th><th>Contract</th><th>Qty</th><th>Entry</th><th>Exit</th><th>ROI</th><th>Net P/L</th></tr>
+                        </thead>
+                        <tbody id="history-body"></tbody>
+                    </table>
+                </div>
+
+                <div id="view-analytics" class="flex-1 overflow-y-auto p-3 hidden grid grid-cols-4 gap-2 text-center items-center">
+                    <div class="bg-slate-800 rounded p-2"><p class="text-[9px] text-gray-400 uppercase">Win Rate</p><p class="text-base font-bold text-blue-400" id="stat-winrate">0%</p></div>
+                    <div class="bg-slate-800 rounded p-2"><p class="text-[9px] text-gray-400 uppercase">Trades</p><p class="text-base font-bold" id="stat-trades">0</p></div>
+                    <div class="bg-slate-800 rounded p-2"><p class="text-[9px] text-gray-400 uppercase">Profit Factor</p><p class="text-base font-bold text-green-400" id="stat-pf">0.00</p></div>
+                    <div class="bg-slate-800 rounded p-2"><p class="text-[9px] text-gray-400 uppercase">Max Drawdown</p><p class="text-base font-bold text-red-400" id="stat-dd">₹0.0</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL (Quant Execution) -->
+        <div class="lg:col-span-3 flex flex-col gap-2 min-h-0">
+            
+            <!-- AI Quant Signal -->
+            <div class="glass-panel p-3 shrink-0 relative overflow-hidden transition-all duration-300" id="ai-panel">
+                <div class="absolute top-0 right-0 bg-purple-600 text-white text-[8px] px-2 py-0.5 rounded-bl font-bold tracking-widest">QUANT ENGINE</div>
+                <div class="flex justify-between items-start mb-2">
+                    <h2 class="font-bold text-sm text-gray-200"><i class="fa-solid fa-microchip text-purple-400 mr-1"></i>AI Signal</h2>
+                    <span class="text-[9px] bg-slate-800 text-gray-300 px-1.5 py-0.5 rounded border border-slate-600" id="ai-confidence">Conf: 0%</span>
+                </div>
+                <div class="bg-slate-900 p-2 rounded border border-slate-700">
+                    <div class="flex justify-between items-center mb-2">
+                        <p class="text-xl font-black tracking-wide transition-colors" id="ai-action">WAIT</p>
+                        <div class="text-right text-[9px] text-gray-400 space-y-1">
+                            <p>Trend: <span id="ai-trend" class="font-bold text-white">Neutral</span></p>
+                            <p>PCR: <span id="ai-pcr" class="font-bold text-white">1.0</span></p>
+                        </div>
+                    </div>
+                    <p class="text-[9px] font-mono text-gray-400 border-t border-slate-700 pt-1" id="ai-reason">Initializing technicals...</p>
+                </div>
+                
+                <!-- AUTO TRADE TOGGLE -->
+                <div class="mt-2 flex items-center justify-between bg-blue-900/20 border border-blue-500/30 p-1.5 rounded cursor-pointer" onclick="app.toggleAutoTrade()">
+                    <span class="text-[10px] font-bold text-blue-300 uppercase tracking-wider"><i class="fa-solid fa-robot mr-1"></i>Auto-Trade (Conf > 90%)</span>
+                    <div class="w-8 h-4 bg-slate-700 rounded-full relative transition-colors" id="auto-trade-bg">
+                        <div class="w-3 h-3 bg-white rounded-full absolute top-0.5 left-0.5 transition-transform" id="auto-trade-knob"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Position Sizing & Execution -->
+            <div class="glass-panel p-3 flex-1 flex flex-col overflow-y-auto">
+                <form id="trade-form" class="space-y-2 flex-1 flex flex-col">
+                    
+                    <div class="bg-slate-800/50 p-2 rounded border border-slate-700">
+                        <label class="text-[9px] text-gray-400 uppercase block mb-1">Contract</label>
+                        <select id="strike-selector" class="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white font-mono text-xs outline-none"></select>
+                    </div>
+                    
+                    <div class="bg-slate-800/50 p-2 rounded border border-slate-700">
+                        <div class="flex justify-between text-[9px] uppercase text-gray-400 mb-1">
+                            <span>Smart Sizing</span>
+                            <span class="text-blue-400 cursor-pointer" onclick="app.calcAutoLots()">Auto Calc <i class="fa-solid fa-calculator"></i></span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[8px] text-gray-500">RISK % CAPITAL</label>
+                                <input type="number" id="risk-pct" value="1.0" step="0.1" max="5" class="w-full bg-slate-900 border-b border-blue-500/50 p-1 text-white text-center font-mono text-xs outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[8px] text-gray-500">LOTS (1=<span id="lot-info">25</span>)</label>
+                                <input type="number" id="lot-size" value="1" min="1" class="w-full bg-slate-900 border-b border-blue-500/50 p-1 text-white text-center font-mono text-xs outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-800/50 p-2 rounded border border-slate-700">
+                        <label class="text-[9px] text-gray-400 uppercase block mb-1">Bracket Order</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[8px] text-red-400">STOP-LOSS (Pts)</label>
+                                <input type="number" id="sl-points" value="15" min="1" class="w-full bg-slate-900 border-b border-red-500/50 p-1 text-white text-center font-mono text-xs outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[8px] text-green-400">TARGET (Pts)</label>
+                                <input type="number" id="tgt-points" value="30" min="1" class="w-full bg-slate-900 border-b border-green-500/50 p-1 text-white text-center font-mono text-xs outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto pt-2">
+                        <p class="text-[9px] text-center text-gray-500 mb-1">Req Margin: <span id="req-margin" class="font-bold text-yellow-400 font-mono">₹0.00</span></p>
+                        <button type="button" id="init-buy-btn" class="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white font-black text-xs py-2 rounded btn-glow uppercase tracking-wider transition">
+                            Execute Order (B)
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTS & GLOBALS ---
+        const CONSTANTS = { STARTING_BALANCE: 100000, BROKERAGE: 20, TAX_PCT: 0.001, TICK_MS: 1000, CANDLE_MS: 5000 };
+        const formatCurr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
+
+        // --- 1. ADVANCED MARKET ENGINE ---
+        class MarketEngine {
+            constructor() {
+                this.indices = {
+                    'NIFTY': { px: 24200, lot: 25, opts: [{ type: 'CE', k: 24200, p: 120 }, { type: 'PE', k: 24200, p: 115 }] },
+                    'BANKNIFTY': { px: 51000, lot: 15, opts: [{ type: 'CE', k: 51000, p: 350 }, { type: 'PE', k: 51000, p: 340 }] }
+                };
+                this.cIdx = 'NIFTY';
+                this.data = [];
+                this.regime = 0; // -1: Bear, 0: Range, 1: Bull
+                this.regimeTicks = 0;
+            }
+
+            init() {
+                this.data = [];
+                let t = Math.floor(Date.now() / 1000) - (60 * 300);
+                let o = this.indices[this.cIdx].px;
+                for(let i=0; i<60; i++) {
+                    let c = o + (Math.random() * 40 - 20);
+                    this.data.push({ time: t, open: o, high: Math.max(o, c)+5, low: Math.min(o, c)-5, close: c });
+                    o = c; t += 300;
+                }
+            }
+
+            tick() {
+                if(!this.data.length) return;
+                
+                // Regime Switching Logic (Trends)
+                this.regimeTicks++;
+                if(this.regimeTicks > 30) { 
+                    this.regime = Math.random() > 0.6 ? 1 : (Math.random() < 0.4 ? -1 : 0);
+                    this.regimeTicks = 0;
+                    document.getElementById('market-regime').innerText = `Regime: ${this.regime===1?'Bull Trend':(this.regime===-1?'Bear Trend':'Range')}`;
+                    document.getElementById('market-regime').className = this.regime===1?'text-green-400':(this.regime===-1?'text-red-400':'text-blue-400');
+                }
+
+                let lc = this.data[this.data.length - 1];
+                let drift = this.regime * 2; // Trend bias
+                let noise = (Math.random() * 6 - 3);
+                let shift = drift + noise; 
+                let nc = lc.close + shift;
+                
+                lc.close = nc;
+                lc.high = Math.max(lc.high, nc);
+                lc.low = Math.min(lc.low, nc);
+
+                // Option Premium Drift (Bounded to prevent absurdity)
+                this.indices[this.cIdx].opts.forEach(opt => {
+                    let s = opt.type === 'CE' ? (shift * 0.5) : (-shift * 0.5);
+                    opt.p = Math.max(1, Math.min(opt.p + s + (Math.random()*1-0.5), 2000));
+                });
+                return shift;
+            }
+
+            newCandle() {
+                let lc = this.data[this.data.length - 1];
+                this.data.push({ time: lc.time + 300, open: lc.close, high: lc.close, low: lc.close, close: lc.close });
+            }
+        }
+
+        // --- 2. OPTIMIZED CHART ENGINE ---
+        class ChartEngine {
+            constructor(cId) {
+                const el = document.getElementById(cId);
+                this.tv = LightweightCharts.createChart(el, {
+                    layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#94a3b8' },
+                    grid: { vertLines: { color: 'rgba(51, 65, 85, 0.2)' }, horzLines: { color: 'rgba(51, 65, 85, 0.2)' } },
+                    timeScale: { timeVisible: true, secondsVisible: false }
+                });
+                this.candles = this.tv.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderVisible: false });
+                this.ema = this.tv.addLineSeries({ color: '#3b82f6', lineWidth: 1 });
+                this.sma = this.tv.addLineSeries({ color: '#f97316', lineWidth: 1 });
+                
+                window.addEventListener('resize', () => this.tv.applyOptions({ width: el.clientWidth, height: el.clientHeight }));
+                setTimeout(() => this.tv.applyOptions({ width: el.clientWidth, height: el.clientHeight }), 100);
+                
+                this.lastEma = 0; this.lastSma = 0;
+            }
+
+            // Incremental EMA for performance
+            update(data) {
+                this.candles.setData(data);
+                let emaData = [], smaData = [];
+                let k = 2/(9+1);
+                
+                for(let i=0; i<data.length; i++) {
+                    let c = data[i].close;
+                    if(i===0) { emaData.push({time: data[i].time, value: c}); }
+                    else { emaData.push({time: data[i].time, value: c*k + emaData[i-1].value*(1-k)}); }
+                    
+                    if(i>=20) {
+                        let sum = 0; for(let j=0; j<21; j++) sum += data[i-j].close;
+                        smaData.push({time: data[i].time, value: sum/21});
+                    }
+                }
+                this.ema.setData(emaData); this.sma.setData(smaData);
+                this.lastEma = emaData[emaData.length-1].value;
+                this.lastSma = smaData[smaData.length-1].value;
+            }
+
+            updateTick(lc) {
+                this.candles.update(lc);
+                // Simple incremental update for visual purposes
+                let k = 2/(9+1);
+                this.lastEma = lc.close*k + this.lastEma*(1-k);
+                this.ema.update({time: lc.time, value: this.lastEma});
+            }
+        }
+
+        // --- 3. AUTO-QUANT AI ENGINE ---
+        class AIEngine {
+            calcRSI(data, period=14) {
+                if(data.length < period) return 50;
+                let gains = 0, losses = 0;
+                for(let i=data.length-period; i<data.length; i++) {
+                    let diff = data[i].close - data[i-1].close;
+                    if(diff>0) gains+=diff; else losses-=diff;
+                }
+                if(losses===0) return 100;
+                let rs = (gains/period) / (losses/period);
+                return 100 - (100/(1+rs));
+            }
+
+            analyze(chart, market) {
+                if(market.data.length < 25) return null;
+                const rsi = this.calcRSI(market.data);
+                document.getElementById('rsi-display').innerText = `RSI: ${rsi.toFixed(0)}`;
+                
+                let isBull = chart.lastEma > chart.lastSma;
+                let rsiSignal = rsi > 60 ? 1 : (rsi < 40 ? -1 : 0);
+                
+                // Candlestick basic read (last closed candle)
+                let lc = market.data[market.data.length-2];
+                let isGreen = lc.close > lc.open;
+
+                let conf = 50;
+                let reasons = [];
+
+                if(isBull && isGreen) { conf += 20; reasons.push("EMA>SMA"); }
+                else if(!isBull && !isGreen) { conf += 20; reasons.push("EMA<SMA"); }
+
+                if(rsiSignal === 1 && isBull) { conf += 25; reasons.push("RSI Bullish"); }
+                else if(rsiSignal === -1 && !isBull) { conf += 25; reasons.push("RSI Bearish"); }
+
+                return {
+                    action: isBull ? 'BUY CE' : 'BUY PE',
+                    type: isBull ? 'CE' : 'PE',
+                    conf: Math.min(99, conf),
+                    trend: isBull ? 'Bullish' : 'Bearish',
+                    reason: reasons.join(" + ") || "Consolidating"
+                };
+            }
+        }
+
+        // --- 4. APP CONTROLLER ---
+        const app = {
+            m: new MarketEngine(), c: null, ai: new AIEngine(),
+            bal: CONSTANTS.STARTING_BALANCE, pos: [], hist: [],
+            isAuto: false, lastAutoTrade: 0
+        };
+
+        app.init = function() {
+            this.c = new ChartEngine('tvchart');
+            this.m.init(); this.c.update(this.m.data);
+            
+            document.getElementById('index-selector')?.addEventListener('change', (e) => { this.m.cIdx = e.target.value; this.m.init(); this.c.update(this.m.data); this.resetUI(); });
+            document.getElementById('strike-selector').addEventListener('change', () => this.updateUI());
+            document.getElementById('lot-size').addEventListener('input', () => this.updateUI());
+            document.getElementById('sl-points').addEventListener('input', () => this.updateUI());
+            document.getElementById('init-buy-btn').addEventListener('click', () => this.execute());
+            
+            // Tabs setup
+            ['positions','history','analytics'].forEach(t => {
+                document.getElementById(`tab-${t}`).addEventListener('click', (e) => {
+                    ['positions','history','analytics'].forEach(x => { document.getElementById(`view-${x}`).classList.add('hidden'); document.getElementById(`tab-${x}`).className = "tab-inactive text-[11px] pb-1"; });
+                    document.getElementById(`view-${t}`).classList.remove('hidden'); e.target.className = "tab-active text-[11px] pb-1";
+                });
+            });
+
+            this.resetUI();
+            setInterval(() => this.tick(), CONSTANTS.TICK_MS);
+            setInterval(() => { this.m.newCandle(); this.c.update(this.m.data); }, CONSTANTS.CANDLE_MS);
+            setInterval(() => document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('en-IN', {hour12:false}), 1000);
+        };
+
+        app.resetUI = function() {
+            let opts = this.m.indices[this.m.cIdx].opts;
+            let sel = document.getElementById('strike-selector');
+            sel.innerHTML = '';
+            opts.forEach((o,i) => {
+                let el = document.createElement('option'); el.value = i;
+                el.innerText = `${this.m.cIdx} ${o.k} ${o.type} (₹${o.p.toFixed(2)})`;
+                sel.appendChild(el);
+            });
+            document.getElementById('lot-info').innerText = this.m.indices[this.m.cIdx].lot;
+            this.updateUI();
+        };
+
+        app.updateUI = function() {
+            let opt = this.m.indices[this.m.cIdx].opts[document.getElementById('strike-selector').value];
+            let lots = parseInt(document.getElementById('lot-size').value) || 1;
+            let val = opt.p * lots * this.m.indices[this.m.cIdx].lot;
+            document.getElementById('req-margin').innerText = formatCurr(val + CONSTANTS.BROKERAGE);
+        };
+
+        // Smart Position Sizing
+        app.calcAutoLots = function() {
+            let riskPct = parseFloat(document.getElementById('risk-pct').value) || 1;
+            let slPts = parseFloat(document.getElementById('sl-points').value) || 15;
+            let lotSz = this.m.indices[this.m.cIdx].lot;
+            
+            let riskAmount = (this.bal * riskPct) / 100;
+            let riskPerLot = slPts * lotSz;
+            let calcLots = Math.max(1, Math.floor(riskAmount / riskPerLot));
+            
+            document.getElementById('lot-size').value = calcLots;
+            this.updateUI();
+            
+            // Highlight animation
+            let input = document.getElementById('lot-size');
+            input.classList.add('bg-blue-900/50');
+            setTimeout(() => input.classList.remove('bg-blue-900/50'), 500);
+        };
+
+        app.toggleAutoTrade = function() {
+            this.isAuto = !this.isAuto;
+            document.getElementById('auto-trade-bg').className = `w-8 h-4 rounded-full relative transition-colors ${this.isAuto ? 'bg-green-500' : 'bg-slate-700'}`;
+            document.getElementById('auto-trade-knob').style.transform = this.isAuto ? 'translateX(16px)' : 'translateX(0)';
+        };
+
+        app.execute = function(aiSignal = null) {
+            let idx = aiSignal ? (aiSignal.type==='CE'?0:1) : document.getElementById('strike-selector').value;
+            let opt = this.m.indices[this.m.cIdx].opts[idx];
+            let qty = (parseInt(document.getElementById('lot-size').value) || 1) * this.m.indices[this.m.cIdx].lot;
+            let val = opt.p * qty + CONSTANTS.BROKERAGE;
+            
+            if(val > this.bal) return console.log("Margin Low");
+            
+            this.bal -= val;
+            this.pos.push({
+                id: Date.now(), sym: `${this.m.cIdx} ${opt.k} ${opt.type}`, idx: idx, qty: qty, 
+                ep: opt.p, sl: parseFloat(document.getElementById('sl-points').value), 
+                tgt: parseFloat(document.getElementById('tgt-points').value), entry: new Date()
+            });
+            this.render();
+        };
+
+        app.close = function(id) {
+            let pIdx = this.pos.findIndex(p => p.id === id);
+            if(pIdx === -1) return;
+            let p = this.pos[pIdx];
+            let exitP = this.m.indices[p.sym.split(' ')[0]].opts[p.idx].p;
+            
+            let gross = (exitP - p.ep) * p.qty;
+            let net = gross - (CONSTANTS.BROKERAGE * 2); // In/Out
+            
+            this.bal += (exitP * p.qty) - CONSTANTS.BROKERAGE;
+            this.hist.push({...p, exitP, net, roi: (net/(p.ep*p.qty))*100});
+            this.pos.splice(pIdx, 1);
+            this.render();
+        };
+
+        app.tick = function() {
+            let s = this.m.tick();
+            let lc = this.m.data[this.m.data.length-1];
+            this.c.updateTick(lc);
+            
+            let pEl = document.getElementById('index-price');
+            pEl.innerHTML = `${lc.close.toFixed(2)} <i class="fa-solid fa-caret-${s>=0?'up':'down'}"></i>`;
+            pEl.className = `text-xl font-bold font-mono ${s>=0?'text-green-400':'text-red-500'}`;
+            
+            // Watchlist mock updates
+            document.getElementById('wl-nifty-px').innerText = lc.close.toFixed(2);
+            document.getElementById('wl-bank-px').innerText = (this.m.indices['BANKNIFTY'].px + (s*2)).toFixed(2);
+            
+            Array.from(document.getElementById('strike-selector').options).forEach(opt => {
+                let data = this.m.indices[this.m.cIdx].opts[opt.value];
+                opt.innerText = `${this.m.cIdx} ${data.k} ${data.type} (₹${data.p.toFixed(2)})`;
+            });
+            this.updateUI();
+            
+            // AI Logic
+            let sig = this.ai.analyze(this.c, this.m);
+            if(sig) {
+                let pnl = document.getElementById('ai-panel');
+                pnl.className = `glass-panel p-3 shrink-0 relative overflow-hidden transition-all duration-300 shadow-[0_0_15px_${sig.type==='CE'?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)'}]`;
+                document.getElementById('ai-action').innerText = sig.action;
+                document.getElementById('ai-action').className = `text-xl font-black tracking-wide ${sig.type==='CE'?'text-green-400':'text-red-400'}`;
+                document.getElementById('ai-confidence').innerText = `Conf: ${sig.conf}%`;
+                document.getElementById('ai-trend').innerText = sig.trend;
+                document.getElementById('ai-reason').innerText = sig.reason;
+
+                // AUTO TRADE LOGIC
+                if(this.isAuto && sig.conf > 90 && Date.now() - this.lastAutoTrade > 30000 && this.pos.length === 0) {
+                    this.execute(sig);
+                    this.lastAutoTrade = Date.now();
+                }
+            }
+
+            // Monitor Pos
+            let mtm = 0;
+            this.pos.forEach(p => {
+                let ltp = this.m.indices[p.sym.split(' ')[0]].opts[p.idx].p;
+                let curMtm = (ltp - p.ep) * p.qty;
+                mtm += curMtm;
+                
+                let rLtp = document.getElementById(`ltp-${p.id}`);
+                if(rLtp) {
+                    rLtp.innerText = ltp.toFixed(2);
+                    let mCell = document.getElementById(`mtm-${p.id}`);
+                    mCell.innerText = curMtm > 0 ? `+₹${curMtm.toFixed(2)}` : `₹${curMtm.toFixed(2)}`;
+                    mCell.className = curMtm > 0 ? 'text-green-400 font-bold' : 'text-red-400 font-bold';
+                }
+                if((ltp - p.ep) <= -p.sl) this.close(p.id);
+                else if((ltp - p.ep) >= p.tgt) this.close(p.id);
+            });
+
+            // Globals
+            let netHist = this.hist.reduce((s, x) => s + x.net, 0);
+            let totalNet = netHist + mtm;
+            document.getElementById('net-pnl').innerText = formatCurr(totalNet);
+            document.getElementById('net-pnl').className = `font-bold font-mono text-lg ${totalNet > 0 ? 'text-green-400' : (totalNet<0?'text-red-400':'text-gray-400')}`;
+            document.getElementById('margin-display').innerText = formatCurr(this.bal);
+        };
+
+        app.render = function() {
+            document.getElementById('pos-count').innerText = this.pos.length;
+            let pb = document.getElementById('positions-body');
+            if(!this.pos.length) pb.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-slate-600">Empty</td></tr>';
+            else pb.innerHTML = this.pos.map(p => `
+                <tr class="border-b border-slate-800 hover:bg-slate-800/30">
+                    <td class="py-1.5 text-blue-300 font-bold">${p.sym}</td><td>${p.qty}</td><td>₹${p.ep.toFixed(2)}</td>
+                    <td id="ltp-${p.id}">-</td><td id="mtm-${p.id}">-</td>
+                    <td><button onclick="app.close(${p.id})" class="bg-red-900/30 text-red-400 px-2 py-0.5 rounded border border-red-500/50 hover:bg-red-600 hover:text-white uppercase font-bold text-[8px]">Exit</button></td>
+                </tr>`).join('');
+                
+            let hb = document.getElementById('history-body');
+            if(this.hist.length) hb.innerHTML = this.hist.slice().reverse().map(h => `
+                <tr class="border-b border-slate-800">
+                    <td class="py-1.5 text-[8px] text-gray-500">${h.entry.toLocaleTimeString('en-IN',{hour12:false})}</td>
+                    <td class="font-bold text-gray-300">${h.sym}</td><td>${h.qty}</td><td>₹${h.ep.toFixed(2)}</td><td>₹${h.exitP.toFixed(2)}</td>
+                    <td class="${h.roi>0?'text-green-400':'text-red-400'}">${h.roi.toFixed(1)}%</td>
+                    <td class="font-bold ${h.net>0?'text-green-400':'text-red-400'}">${h.net>0?'+':''}₹${h.net.toFixed(2)}</td>
+                </tr>`).join('');
+                
+            // Analytics
+            let w = this.hist.filter(h => h.net > 0);
+            document.getElementById('stat-trades').innerText = this.hist.length;
+            if(this.hist.length) document.getElementById('stat-winrate').innerText = `${((w.length/this.hist.length)*100).toFixed(0)}%`;
+        };
+
+        window.onload = () => app.init();
+    </script>
+</body>
+</html>
