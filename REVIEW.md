@@ -68,3 +68,65 @@ you ever connect real execution it should be manual and confirmation-gated.
 2. Move brokerage/tax/slippage into a realistic cost model if you want the P/L to mean anything.
 3. Add persistence (positions/history) and a proper backtest harness before trusting any signal.
 4. Multi-user or hosted use would need per-user sessions, HTTPS, and rate limiting.
+
+---
+
+## Later additions (robustness + honesty)
+
+- **Stable signals** — neutral band + 5-read confirmation (hysteresis) so the call
+  doesn't flip every tick; shows honest WAIT when there's no confirmed trend.
+- **Live chart mode** — pulls real Angel One candles (Connect Broker → Go Live);
+  falls back to simulation on any error instead of freezing.
+- **Real market hours** — sim freezes when NSE is closed (IST 9:15–15:30, Mon–Fri);
+  a Practice toggle lets you run it after hours.
+- **Expiry Guide + hold-time** — matches expiry/holding-window to your plan (education,
+  not a profit call).
+- **Backtest** — runs the same rule over history; reports win rate, profit factor,
+  drawdown, and net AFTER an assumed cost/slippage per trade.
+- **Robust fetch (backend)** — retry + exponential backoff + rate-limit cooldown +
+  short TTL cache on LTP/candle calls (pattern adapted from HKUDS/AI-Trader, MIT).
+- **Realistic F&O cost model** — brokerage + STT + exchange txn + SEBI + stamp + GST
+  applied on exit, so paper P&L reflects what you'd actually net. Rates are approximate
+  and configurable in CONSTANTS.CHARGES — verify against current regulations.
+
+None of this makes the strategy profitable or predictive. It makes the tool honest,
+reliable, and realistic. Test in paper/DRY_RUN before risking real money.
+
+## More additions
+
+- **Risk-based position sizing** — Auto Calc now shows exactly how much you're
+  risking (₹ and %) and the max loss if SL hits, so lots are chosen by risk, not gut.
+- **Persistent trade journal** — every closed paper trade is saved on your device and
+  restored on reload; the analytics tab shows win rate, profit factor, and max drawdown.
+- **CSV export / clear** — download your whole journal as CSV to review over weeks/months.
+
+## Learn module
+
+- **Learn Chart Patterns** — a beginner-friendly reference (Support/Resistance, Up/Down
+  trend, Double Top/Bottom, Head & Shoulders, Ascending Triangle, Bull Flag, Candles &
+  Doji) with small hand-drawn inline diagrams and plain-English notes. Clearly framed:
+  patterns are tendencies, not guarantees.
+
+## Auto pattern detection
+
+- **Scan Pattern** (button on the chart) — analyses the current candles (live or sim),
+  finds swing pivots, and identifies a likely pattern (Double Top/Bottom, Head &
+  Shoulders, Ascending Triangle, Uptrend/Downtrend, or Range), showing the matching
+  diagram and what it usually indicates. Clearly labelled as an approximate hint —
+  automated pattern detection is fuzzy and often wrong; confirm before acting.
+
+## Learning + discipline tools
+
+- **Pattern Quiz** — shows a pattern diagram with 4 choices, keeps score, and explains
+  what the pattern means after each answer. Reinforces the Learn module.
+- **Pre-Trade Checklist** — before entering, auto-checks direction, stop-loss,
+  reward:risk, risk ≤ 2% of capital, and market-open; plus honest manual confirmations
+  (no expiry-hour theta, news checked, sized by risk, accepts a loss). Green light only
+  when everything passes. Discipline improves odds — it does not guarantee profit.
+
+## Live auto trend/pattern
+
+- **Auto trend + pattern badge** on the chart — updates itself every few seconds
+  (live or sim), showing the current trend (Up/Down/Sideways) and any detected pattern.
+- **Chart markers** — the pivots forming the detected pattern are circled on the chart
+  (peaks above, troughs below). Approximate and often wrong — a hint, not a signal.

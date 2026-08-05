@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import secrets
 import threading
+import time
 from typing import Optional
 
 import pyotp
@@ -85,6 +87,50 @@ app.add_middleware(
 _lock = threading.Lock()
 _smart_api = None          # type: ignore
 _session_token: Optional[str] = None   # our own token, not the broker JWT
+
+# --------------------------------------------------------------------------- #
+# Robust fetch: retry + exponential backoff + rate-limit cooldown + TTL cache  #
+# (pattern adapted from HKUDS/AI-Trader's price_fetcher; rewritten for SmartAPI)#
+# --------------------------------------------------------------------------- #
+
+_FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "2"))
+_FETCH_BACKOFF = float(os.getenv("FETCH_BACKOFF", "0.4"))
+_FETCH_COOLDOWN = float(os.getenv("FETCH_COOLDOWN", "30"))
+_cooldown_until = 0.0
+_cache: dict[str, tuple[float, object]] = {}
+
+
+def _cache_get(key: str):
+    hit = _cache.get(key)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    return None
+
+
+def _cache_put(key: str, value, ttl: float):
+    _cache[key] = (time.time() + ttl, value)
+
+
+def _fetch_with_retry(fn, label: str):
+    """Call fn() with retries/backoff; back off hard on rate-limit signals."""
+    global _cooldown_until
+    if time.time() < _cooldown_until:
+        wait = round(_cooldown_until - time.time())
+        raise HTTPException(429, f"{label}: rate-limit cooldown, retry in ~{wait}s.")
+    last = None
+    for attempt in range(_FETCH_RETRIES + 1):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            msg = str(exc).lower()
+            if any(w in msg for w in ("rate", "limit", "429", "too many", "access denied")):
+                _cooldown_until = time.time() + _FETCH_COOLDOWN
+                log.warning("%s hit a rate limit; cooling down %ss", label, _FETCH_COOLDOWN)
+                break
+            if attempt < _FETCH_RETRIES:
+                time.sleep(_FETCH_BACKOFF * (2 ** attempt) + random.uniform(0, 0.1))
+    raise HTTPException(502, detail=f"{label} failed after retries: {last}")
 
 
 def require_session(x_session_token: str = Header(default="")) -> None:
@@ -335,16 +381,19 @@ class LtpRequest(BaseModel):
 def get_ltp(req: LtpRequest):
     if _smart_api is None:
         raise HTTPException(401, "Not logged in.")
+    key = f"ltp:{req.exchange}:{req.symboltoken}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return {"status": "success", "data": cached, "cached": True}
     with _lock:
-        try:
-            data = _smart_api.ltpData(req.exchange, req.tradingsymbol, req.symboltoken)
-            if isinstance(data, dict) and data.get("status"):
-                return {"status": "success", "data": data.get("data")}
-            raise HTTPException(502, detail=str(data))
-        except HTTPException:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(500, detail=f"LTP failed: {exc}") from exc
+        data = _fetch_with_retry(
+            lambda: _smart_api.ltpData(req.exchange, req.tradingsymbol, req.symboltoken),
+            "LTP",
+        )
+    if isinstance(data, dict) and data.get("status"):
+        _cache_put(key, data.get("data"), ttl=2.0)   # brief cache to absorb bursts
+        return {"status": "success", "data": data.get("data")}
+    raise HTTPException(502, detail=str(data))
 
 
 class CandleRequest(BaseModel):
@@ -367,12 +416,17 @@ def get_candles(req: CandleRequest):
         "fromdate": req.fromdate,
         "todate": req.todate,
     }
+    key = f"candles:{req.exchange}:{req.symboltoken}:{req.interval}:{req.fromdate}:{req.todate}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return {"status": "success", "candles": cached, "cached": True}
     with _lock:
         try:
-            data = _smart_api.getCandleData(params)
+            data = _fetch_with_retry(lambda: _smart_api.getCandleData(params), "Candles")
             if isinstance(data, dict) and data.get("status"):
-                # Angel returns rows: [timestamp, open, high, low, close, volume]
-                return {"status": "success", "candles": data.get("data", [])}
+                rows = data.get("data", [])
+                _cache_put(key, rows, ttl=15.0)   # candles don't change within a bar
+                return {"status": "success", "candles": rows}
             raise HTTPException(502, detail=str(data))
         except HTTPException:
             raise

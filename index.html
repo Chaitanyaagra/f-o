@@ -5,6 +5,65 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI TradePro V9 (Auto-Quant Terminal)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PATTERN QUIZ MODAL -->
+    <div id="quiz-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-circle-question text-teal-400 mr-2"></i>Pattern Quiz <span id="quiz-score" class="text-xs text-gray-400 font-normal ml-2"></span></h2>
+                <button onclick="app.closeQuiz()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div id="quiz-body" class="text-sm text-gray-200"></div>
+        </div>
+    </div>
+
+    <!-- PRE-TRADE CHECKLIST MODAL -->
+    <div id="checklist-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-list-check text-blue-400 mr-2"></i>Pre-Trade Checklist</h2>
+                <button onclick="app.closeChecklist()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div id="checklist-body" class="text-sm text-gray-200"></div>
+        </div>
+    </div>
+
+    <!-- PATTERN SCAN RESULT MODAL -->
+    <div id="scan-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-magnifying-glass-chart text-emerald-400 mr-2"></i>Pattern Scan</h2>
+                <button onclick="app.closeScan()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div id="scan-body" class="text-sm text-gray-200">Scanning…</div>
+        </div>
+    </div>
+
+    <!-- LEARN: CHART PATTERNS MODAL -->
+    <div id="learn-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-2xl w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-1">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-graduation-cap text-emerald-400 mr-2"></i>Learn Chart Patterns</h2>
+                <button onclick="app.closeLearn()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <p class="text-[11px] text-amber-200 bg-slate-800 border border-slate-700 rounded p-2 mb-3 leading-snug">
+                Patterns show what traders often watch for — they are tendencies, not guarantees. Many fail. Never trade a
+                pattern alone: wait for confirmation, use a stop-loss, and size by risk. This is education, not advice.
+            </p>
+            <div id="learn-body" class="grid sm:grid-cols-2 gap-3"></div>
+        </div>
+    </div>
+
+    <!-- BACKTEST RESULTS MODAL -->
+    <div id="backtest-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-lg w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-flask-vial text-indigo-400 mr-2"></i>Backtest Results</h2>
+                <button onclick="app.closeBacktest()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div id="backtest-body" class="text-sm text-gray-200">Running…</div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -94,6 +153,8 @@
                 <div class="flex justify-between items-center px-2 py-1 border-b border-slate-700/50 mb-1">
                     <div class="flex items-center gap-3">
                         <span class="text-xl font-bold font-mono text-green-400" id="index-price">0.00</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wide bg-slate-800 border border-slate-600 rounded px-2 py-0.5" id="trend-badge" title="Auto-detected trend/pattern (approximate)">—</span>
+                        <button onclick="app.scanPattern()" class="bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide transition"><i class="fa-solid fa-magnifying-glass-chart mr-1"></i>Scan Pattern</button>
                     </div>
                     <div class="flex gap-2 text-[9px] uppercase font-bold">
                         <span class="text-blue-400 bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-500/30">EMA 9</span>
@@ -122,6 +183,13 @@
                 </div>
 
                 <div id="view-history" class="flex-1 overflow-y-auto p-1 hidden">
+                    <div class="flex justify-between items-center px-1 pb-1">
+                        <span class="text-[9px] text-gray-500 uppercase">Trade Journal (saved on this device)</span>
+                        <div class="flex gap-2">
+                            <button onclick="app.exportJournalCSV()" class="text-[9px] text-blue-400 hover:text-blue-300 uppercase"><i class="fa-solid fa-file-csv mr-1"></i>Export CSV</button>
+                            <button onclick="app.clearJournal()" class="text-[9px] text-red-400 hover:text-red-300 uppercase"><i class="fa-solid fa-trash mr-1"></i>Clear</button>
+                        </div>
+                    </div>
                     <table class="w-full text-left text-[10px] text-gray-300 whitespace-nowrap">
                         <thead class="text-[9px] text-gray-500 uppercase sticky top-0 bg-[#0f172a]">
                             <tr><th>Time</th><th>Contract</th><th>Qty</th><th>Entry</th><th>Exit</th><th>ROI</th><th>Net P/L</th></tr>
@@ -192,6 +260,15 @@
                         confirm the actual live expiry date in your broker before trading.
                     </p>
                 </div>
+                <button onclick="app.openBacktest()" class="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2 rounded uppercase tracking-wide transition">
+                    <i class="fa-solid fa-flask-vial mr-1"></i>Run Backtest
+                </button>
+                <button onclick="app.openLearn()" class="w-full mt-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs py-2 rounded uppercase tracking-wide transition">
+                    <i class="fa-solid fa-graduation-cap mr-1"></i>Learn Chart Patterns
+                </button>
+                <button onclick="app.openQuiz()" class="w-full mt-2 bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs py-2 rounded uppercase tracking-wide transition">
+                    <i class="fa-solid fa-circle-question mr-1"></i>Pattern Quiz
+                </button>
             </div>
 
             <!-- Position Sizing & Execution -->
@@ -218,6 +295,7 @@
                                 <input type="number" id="lot-size" value="1" min="1" class="w-full bg-slate-900 border-b border-blue-500/50 p-1 text-white text-center font-mono text-xs outline-none">
                             </div>
                         </div>
+                        <p id="risk-readout" class="text-[8px] text-gray-500 mt-1 leading-tight">Set risk % and SL, then Auto Calc.</p>
                     </div>
 
                     <div class="bg-slate-800/50 p-2 rounded border border-slate-700">
@@ -236,6 +314,9 @@
 
                     <div class="mt-auto pt-2">
                         <p class="text-[9px] text-center text-gray-500 mb-1">Req Margin: <span id="req-margin" class="font-bold text-yellow-400 font-mono">₹0.00</span></p>
+                        <button type="button" onclick="app.openChecklist()" class="w-full mb-1.5 bg-slate-700 hover:bg-slate-600 text-gray-100 font-bold text-[11px] py-1.5 rounded uppercase tracking-wide transition">
+                            <i class="fa-solid fa-list-check mr-1"></i>Pre-Trade Checklist
+                        </button>
                         <button type="button" id="init-buy-btn" class="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white font-black text-xs py-2 rounded btn-glow uppercase tracking-wider transition">
                             Execute Order (B)
                         </button>
@@ -251,9 +332,32 @@
             STARTING_BALANCE: 100000, BROKERAGE: 20, TAX_PCT: 0.001,
             TICK_MS: 1000, CANDLE_MS: 5000,
             DAILY_LOSS_LIMIT: 5000,   // trading halts (incl. auto) once net P/L hits -this
-            MAX_AUTO_TRADES: 20       // safety cap on automated entries per session
+            MAX_AUTO_TRADES: 20,      // safety cap on automated entries per session
+            // Approximate Indian index-OPTION-BUYING charges (verify current rates —
+            // regulators change these). These are what quietly eat retail profits.
+            CHARGES: {
+                brokeragePerOrder: 20,   // flat per executed order (discount broker)
+                sttSell: 0.001,          // STT 0.1% on SELL-side premium
+                exchTxn: 0.0003503,      // NSE options txn charge (both legs, on premium)
+                sebi: 0.000001,          // SEBI ₹10 per crore (both legs)
+                stampBuy: 0.00003,       // stamp duty 0.003% on BUY side
+                gst: 0.18                // 18% GST on (brokerage + exch + SEBI)
+            }
         };
         const formatCurr = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
+
+        // Real round-trip cost of buying an option (entry premium -> exit premium).
+        function computeFnoCharges(buyPrem, sellPrem, qty) {
+            const R = CONSTANTS.CHARGES;
+            const buyTurn = buyPrem * qty, sellTurn = sellPrem * qty, turn = buyTurn + sellTurn;
+            const brokerage = R.brokeragePerOrder * 2;
+            const stt   = sellTurn * R.sttSell;
+            const exch  = turn * R.exchTxn;
+            const sebi  = turn * R.sebi;
+            const stamp = buyTurn * R.stampBuy;
+            const gst   = (brokerage + exch + sebi) * R.gst;
+            return brokerage + stt + exch + sebi + stamp + gst;
+        }
 
         // Where backend.py is running. Change if you host it elsewhere.
         const BACKEND_URL = 'http://127.0.0.1:8000';
@@ -389,6 +493,8 @@
                 this.lastEma = lc.close*k + this.lastEma*(1-k);
                 this.ema.update({time: lc.time, value: this.lastEma});
             }
+
+            setMarkers(markers) { try { this.candles.setMarkers(markers || []); } catch(e){} }
         }
 
         // --- 3. AUTO-QUANT AI ENGINE ---
@@ -500,7 +606,7 @@
         };
 
         app.init = function() {
-            const NullChart = { update(){}, updateTick(){}, lastEma:0, lastSma:0 };
+            const NullChart = { update(){}, updateTick(){}, setMarkers(){}, lastEma:0, lastSma:0 };
             if (typeof LightweightCharts === 'undefined') {
                 notify('Chart library load nahi hui (internet/CDN check karo). Signal engine phir bhi chal raha hai.', 'warn');
                 const el = document.getElementById('tvchart');
@@ -533,6 +639,9 @@
             });
 
             this.resetUI();
+            this.loadJournal();
+            this.render();
+            try { this.updateLiveDetection(); } catch(e){}
             setInterval(() => this.tick(), CONSTANTS.TICK_MS);
             setInterval(() => { if(this.dataMode!=='LIVE' && (this.isMarketOpen() || this.practiceMode)){ this.m.newCandle(); this.c.update(this.m.data); } }, CONSTANTS.CANDLE_MS);
             setInterval(() => { document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('en-IN', {hour12:false}); this.updateMarketStatus(); }, 1000);
@@ -556,7 +665,7 @@
             let opt = this.m.indices[this.m.cIdx].opts[document.getElementById('strike-selector').value];
             let lots = parseInt(document.getElementById('lot-size').value) || 1;
             let val = opt.p * lots * this.m.indices[this.m.cIdx].lot;
-            document.getElementById('req-margin').innerText = formatCurr(val + CONSTANTS.BROKERAGE);
+            document.getElementById('req-margin').innerText = formatCurr(val);
         };
 
         // Smart Position Sizing
@@ -571,11 +680,69 @@
             
             document.getElementById('lot-size').value = calcLots;
             this.updateUI();
+
+            const maxLoss = calcLots * riskPerLot;
+            document.getElementById('risk-readout').innerHTML =
+                `Risking <b>${formatCurr(riskAmount)}</b> (${riskPct}%). Sized <b>${calcLots}</b> lot(s); ` +
+                `if SL (${slPts} pts) hits, max loss ≈ <b class="text-red-400">${formatCurr(maxLoss)}</b>.`;
             
             // Highlight animation
             let input = document.getElementById('lot-size');
             input.classList.add('bg-blue-900/50');
             setTimeout(() => input.classList.remove('bg-blue-900/50'), 500);
+        };
+
+        // --- TRADE JOURNAL: persist history on this device + CSV export ----------
+        const JOURNAL_KEY = 'aitradepro_journal_v1';
+        app.saveJournal = function() {
+            try {
+                const slim = this.hist.map(h => ({
+                    id: h.id, sym: h.sym, qty: h.qty, ep: h.ep, exitP: h.exitP,
+                    net: h.net, charges: h.charges, roi: h.roi,
+                    entry: (h.entry instanceof Date ? h.entry.toISOString() : h.entry),
+                    mode: h.mode || (this.dataMode === 'LIVE' ? 'LIVE-sim' : 'SIM')
+                }));
+                localStorage.setItem(JOURNAL_KEY, JSON.stringify(slim));
+            } catch (e) { /* storage unavailable (private mode / file://) — stay in-memory */ }
+        };
+        app.loadJournal = function() {
+            try {
+                const raw = localStorage.getItem(JOURNAL_KEY);
+                if (!raw) return;
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    this.hist = arr.map(h => ({ ...h, entry: new Date(h.entry) }));
+                }
+            } catch (e) { /* ignore corrupt/unavailable storage */ }
+        };
+        app.clearJournal = function() {
+            if (!window.confirm('Clear the entire saved trade journal? This cannot be undone.')) return;
+            this.hist = [];
+            try { localStorage.removeItem(JOURNAL_KEY); } catch (e) {}
+            this.render();
+            notify('Journal cleared.', 'info');
+        };
+        app.exportJournalCSV = function() {
+            if (!this.hist.length) { notify('No trades to export yet.', 'warn'); return; }
+            const cols = ['entry','sym','qty','ep','exitP','charges','net','roi','mode'];
+            const head = ['Time','Contract','Qty','Entry','Exit','Charges','NetPnL','ROI%','Mode'];
+            const esc = v => `"${String(v).replace(/"/g,'""')}"`;
+            const lines = [head.join(',')];
+            for (const h of this.hist) {
+                const row = {
+                    entry: (h.entry instanceof Date ? h.entry.toLocaleString('en-IN') : h.entry),
+                    sym: h.sym, qty: h.qty, ep: h.ep?.toFixed(2), exitP: h.exitP?.toFixed(2),
+                    charges: (h.charges||0).toFixed(2), net: h.net?.toFixed(2), roi: h.roi?.toFixed(2),
+                    mode: h.mode || 'SIM'
+                };
+                lines.push(cols.map(c => esc(row[c] ?? '')).join(','));
+            }
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `tradepro_journal_${new Date().toISOString().slice(0,10)}.csv`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
         };
 
         app.toggleAutoTrade = function() {
@@ -591,7 +758,7 @@
             let idx = aiSignal ? (aiSignal.type==='CE'?0:1) : document.getElementById('strike-selector').value;
             let opt = this.m.indices[this.m.cIdx].opts[idx];
             let qty = (parseInt(document.getElementById('lot-size').value) || 1) * this.m.indices[this.m.cIdx].lot;
-            let val = opt.p * qty + CONSTANTS.BROKERAGE;
+            let val = opt.p * qty;   // option buying: margin = premium paid
 
             if(val > this.bal) { notify(`Insufficient margin: need ${formatCurr(val)}, have ${formatCurr(this.bal)}.`, 'warn'); return; }
 
@@ -611,11 +778,13 @@
             let exitP = this.m.indices[p.sym.split(' ')[0]].opts[p.idx].p;
             
             let gross = (exitP - p.ep) * p.qty;
-            let net = gross - (CONSTANTS.BROKERAGE * 2); // In/Out
-            
-            this.bal += (exitP * p.qty) - CONSTANTS.BROKERAGE;
-            this.hist.push({...p, exitP, net, roi: (net/(p.ep*p.qty))*100});
+            let charges = computeFnoCharges(p.ep, exitP, p.qty);
+            let net = gross - charges;
+
+            this.bal += (exitP * p.qty) - charges;
+            this.hist.push({...p, exitP, net, charges, roi: (net/(p.ep*p.qty))*100});
             this.pos.splice(pIdx, 1);
+            this.saveJournal();
             this.render();
         };
 
@@ -718,6 +887,10 @@
                 notify(`Daily loss limit (${formatCurr(-CONSTANTS.DAILY_LOSS_LIMIT)}) hit. Trading halted.`, 'error');
                 document.getElementById('init-buy-btn').disabled = true;
             }
+
+            // Auto-detect trend + pattern on the chart, throttled (every ~5 ticks).
+            this._detCount = (this._detCount || 0) + 1;
+            if (this._detCount % 5 === 0) { try { this.updateLiveDetection(); } catch(e){} }
         };
 
         app.render = function() {
@@ -744,6 +917,17 @@
             let w = this.hist.filter(h => h.net > 0);
             document.getElementById('stat-trades').innerText = this.hist.length;
             if(this.hist.length) document.getElementById('stat-winrate').innerText = `${((w.length/this.hist.length)*100).toFixed(0)}%`;
+            // Profit factor + max drawdown (₹) from the journal
+            const gW = w.reduce((s,h)=>s+h.net,0);
+            const gL = Math.abs(this.hist.filter(h=>h.net<=0).reduce((s,h)=>s+h.net,0));
+            const pfEl = document.getElementById('stat-pf');
+            if (pfEl) { const pf = gL ? gW/gL : (gW>0?Infinity:0); pfEl.innerText = pf===Infinity?'∞':pf.toFixed(2); pfEl.className = `text-base font-bold ${pf>=1?'text-green-400':'text-red-400'}`; }
+            const ddEl = document.getElementById('stat-dd');
+            if (ddEl) {
+                let eq=0, peak=0, maxDD=0;
+                for (const h of this.hist) { eq+=h.net; peak=Math.max(peak,eq); maxDD=Math.max(maxDD, peak-eq); }
+                ddEl.innerText = formatCurr(-maxDD);
+            }
         };
 
         // --- BROKER (Angel One) CONNECTION ---------------------------------
@@ -989,6 +1173,7 @@
                 this.m.data = mapped;
                 this.c.update(this.m.data);
                 this.updateUI();
+                try { this.updateLiveDetection(); } catch(e){}
                 return true;
             } catch (e) {
                 const hint = e.message === 'Failed to fetch' ? 'backend chal raha hai?' : e.message;
@@ -996,6 +1181,451 @@
                 return false;
             }
         };
+
+        // --- BACKTEST: run the SAME recommendation logic over historical candles --
+        // Tests signal DIRECTION on the underlying index (points), not option premiums.
+        // Real option P&L differs (theta, spreads, slippage). Past != future.
+        app.runBacktest = function(candles, sl, tgt, maxHold = 30) {
+            const CONFIRM = 5;
+            let pendingDir = 0, streak = 0, committedDir = 0;
+            let pos = null;               // {dir, entry, entryIdx}
+            const trades = [];
+
+            for (let i = 25; i < candles.length; i++) {
+                const cl = candles.slice(0, i + 1).map(c => c.close);
+                const ema = this.ai.calcEMA(cl, 9);
+                const sma = this.ai.calcSMA(cl, 21);
+                const price = cl[cl.length - 1];
+                const band = price * 0.0006;
+                const gap = ema - sma;
+                const raw = gap > band ? 1 : (gap < -band ? -1 : 0);
+
+                if (raw !== 0 && raw === pendingDir) streak++; else { pendingDir = raw; streak = 1; }
+                if (raw !== 0 && streak >= CONFIRM) committedDir = raw;
+                if (raw === 0 && streak >= CONFIRM) committedDir = 0;
+
+                // Manage open position using THIS candle's range (no same-candle lookahead on entry).
+                if (pos) {
+                    const c = candles[i];
+                    let exit = null;
+                    if (pos.dir > 0) {
+                        if (c.low <= pos.entry - sl) exit = pos.entry - sl;         // SL first (conservative)
+                        else if (c.high >= pos.entry + tgt) exit = pos.entry + tgt;
+                    } else {
+                        if (c.high >= pos.entry + sl) exit = pos.entry + sl;
+                        else if (c.low <= pos.entry - tgt) exit = pos.entry - tgt;
+                    }
+                    if (exit === null && (i - pos.entryIdx) >= maxHold) exit = c.close; // time-stop
+                    if (exit !== null) {
+                        trades.push(pos.dir > 0 ? (exit - pos.entry) : (pos.entry - exit));
+                        pos = null;
+                    }
+                }
+                // Entry: follow the committed recommendation when flat.
+                if (!pos && committedDir !== 0) {
+                    pos = { dir: committedDir, entry: candles[i].close, entryIdx: i };
+                }
+            }
+
+            const n = trades.length;
+            const wins = trades.filter(t => t > 0);
+            const losses = trades.filter(t => t <= 0);
+            const total = trades.reduce((a, b) => a + b, 0);
+            const grossWin = wins.reduce((a, b) => a + b, 0);
+            const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
+            let eq = 0, peak = 0, maxDD = 0, lstreak = 0, worst = 0;
+            for (const t of trades) {
+                eq += t; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, peak - eq);
+                if (t <= 0) { lstreak++; worst = Math.max(worst, lstreak); } else lstreak = 0;
+            }
+            return {
+                n, wins: wins.length, losses: losses.length,
+                winRate: n ? (wins.length / n * 100) : 0,
+                total,
+                avgWin: wins.length ? grossWin / wins.length : 0,
+                avgLoss: losses.length ? -grossLoss / losses.length : 0,
+                pf: grossLoss ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0),
+                maxDD, worst
+            };
+        };
+
+        app.openBacktest = function() {
+            document.getElementById('backtest-modal').classList.remove('hidden');
+            document.getElementById('backtest-body').innerHTML = 'Running…';
+            // let the modal paint before the (synchronous) crunch
+            setTimeout(() => {
+                const sl  = parseFloat(document.getElementById('sl-points').value)  || 15;
+                const tgt = parseFloat(document.getElementById('tgt-points').value) || 30;
+
+                let candles, source;
+                if (this.dataMode === 'LIVE' && this.m.data.length >= 120) {
+                    candles = this.m.data; source = 'live Angel One candles (this session)';
+                } else {
+                    // Generate a long random-walk series to stress-test the rule.
+                    candles = []; let px = 24000;
+                    for (let i = 0; i < 1500; i++) {
+                        const d = (Math.random() - 0.5) * 22;
+                        const o = px, c = px + d;
+                        candles.push({ open: o, close: c, high: Math.max(o, c) + Math.random()*6, low: Math.min(o, c) - Math.random()*6 });
+                        px = c;
+                    }
+                    source = 'simulated random-walk data (1500 candles)';
+                }
+                const r = this.runBacktest(candles, sl, tgt);
+                this.renderBacktest(r, source, sl, tgt);
+            }, 30);
+        };
+
+        app.closeBacktest = function() {
+            document.getElementById('backtest-modal').classList.add('hidden');
+        };
+
+        app.renderBacktest = function(r, source, sl, tgt) {
+            const pf = r.pf === Infinity ? '∞' : r.pf.toFixed(2);
+            const good = (v, ok) => ok ? 'text-green-400' : 'text-red-400';
+            const netColor = r.total >= 0 ? 'text-green-400' : 'text-red-400';
+
+            // Cost + slippage per round trip, expressed on the index-point basis.
+            // Small but decisive over many trades — this is what kills most retail edges.
+            const COST_PTS = 1.5;
+            const afterCost = r.total - r.n * COST_PTS;
+            const acColor = afterCost >= 0 ? 'text-green-400' : 'text-red-400';
+
+            const rows = [
+                ['Trades taken', r.n],
+                ['Win rate', `<span class="${good(r.winRate, r.winRate>=50)}">${r.winRate.toFixed(1)}%</span> (${r.wins}W / ${r.losses}L)`],
+                ['Gross net points', `<span class="${netColor}">${r.total.toFixed(1)}</span>`],
+                [`After ~${COST_PTS} pt cost/slippage per trade`, `<span class="${acColor}">${afterCost.toFixed(1)}</span>`],
+                ['Avg win / avg loss', `+${r.avgWin.toFixed(1)} / ${r.avgLoss.toFixed(1)} pts`],
+                ['Profit factor', `<span class="${good(r.pf, r.pf>=1)}">${pf}</span>`],
+                ['Max drawdown', `${r.maxDD.toFixed(1)} pts`],
+                ['Worst losing streak', `${r.worst} trades`],
+            ];
+            const table = rows.map(([k,v]) => `<div class="flex justify-between py-1 border-b border-slate-700/60"><span class="text-gray-400">${k}</span><span class="font-mono font-bold">${v}</span></div>`).join('');
+
+            const verdict = r.n < 10
+                ? 'Too few trades to conclude anything.'
+                : (afterCost > 0 && r.pf >= 1.1)
+                    ? 'Positive after costs on THIS data — but that is not proof of a real edge. Re-run on real market data and separate out-of-sample periods before trusting it with any money.'
+                    : 'After costs this rule did not show a reliable edge here. That is the honest and common result for simple EMA/RSI rules — notice how the cost line alone can flip a "profitable" strategy into a loss. Treat live use with great caution.';
+
+            document.getElementById('backtest-body').innerHTML = `
+                <p class="text-[11px] text-gray-400 mb-2">Data: ${source} · SL ${sl} / target ${tgt} pts · direction on the index.</p>
+                ${table}
+                <div class="mt-3 p-2 rounded bg-slate-800 border border-slate-700 text-[11px] leading-snug text-amber-200">${verdict}</div>
+                <p class="mt-2 text-[9px] text-gray-500 leading-tight">
+                    Tests signal direction on the underlying in points. Real option P&L is usually worse (theta decay,
+                    bid-ask spread, brokerage + STT + GST + stamp). Past performance never guarantees future results.
+                    Not investment advice.
+                </p>`;
+        };
+
+        // --- LEARN: beginner chart patterns with small inline diagrams ----------
+        const SVG = (inner) => `<svg viewBox="0 0 200 92" class="w-full h-24 bg-slate-900 rounded border border-slate-700">${inner}</svg>`;
+        const L = (pts, color, w=2, dash='') => `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${w}" ${dash?`stroke-dasharray="${dash}"`:''} stroke-linejoin="round" stroke-linecap="round"/>`;
+        const LEARN_PATTERNS = [
+            {
+                name: 'Support & Resistance',
+                svg: SVG(`${L('10,20 190,20','#ef4444',1.5,'4 3')}${L('10,72 190,72','#22c55e',1.5,'4 3')}${L('12,70 45,24 78,70 111,24 144,70 177,26','#93c5fd')}`),
+                what: 'Price keeps bouncing between a floor (support) and a ceiling (resistance).',
+                watch: 'Buyers tend to step in near support, sellers near resistance. A clean break of either can start a new move.'
+            },
+            {
+                name: 'Uptrend',
+                svg: SVG(`${L('10,80 40,58 30,70 70,42 60,52 100,30 90,40 130,18 120,26 160,12','#22c55e')}${L('8,84 165,20','#3b82f6',1.5,'4 3')}`),
+                what: 'A staircase of higher highs and higher lows.',
+                watch: 'Trend is up. Traders often look to buy dips toward the rising trendline, not chase the top.'
+            },
+            {
+                name: 'Downtrend',
+                svg: SVG(`${L('10,12 40,34 30,22 70,50 60,40 100,62 90,52 130,74 120,64 160,80','#ef4444')}${L('8,8 165,72','#3b82f6',1.5,'4 3')}`),
+                what: 'A staircase of lower highs and lower lows.',
+                watch: 'Trend is down. Buying here fights the trend; many wait for it to end or trade the down-move instead.'
+            },
+            {
+                name: 'Double Top (M)',
+                svg: SVG(`${L('10,75 45,25 75,52 105,25 150,78','#f59e0b')}${L('45,25 105,25','#ef4444',1.2,'3 3')}${L('30,52 150,52','#22c55e',1.2,'3 3')}`),
+                what: 'Two peaks at about the same level, like the letter "M".',
+                watch: 'Price failed twice to break higher. A drop below the middle low (neckline) is read as weakness.'
+            },
+            {
+                name: 'Double Bottom (W)',
+                svg: SVG(`${L('10,25 45,75 75,48 105,75 150,22','#22c55e')}${L('45,75 105,75','#22c55e',1.2,'3 3')}${L('30,48 150,48','#ef4444',1.2,'3 3')}`),
+                what: 'Two dips at about the same level, like the letter "W".',
+                watch: 'Sellers failed twice to push lower. A break above the middle high is read as strength.'
+            },
+            {
+                name: 'Head & Shoulders',
+                svg: SVG(`${L('10,60 38,42 58,56 90,20 122,56 142,42 175,60','#f59e0b')}${L('58,56 122,56','#ef4444',1.2,'3 3')}`),
+                what: 'Three peaks: a higher middle one (head) between two lower ones (shoulders).',
+                watch: 'A common "trend may be ending" shape. A break below the neckline is the trigger traders watch.'
+            },
+            {
+                name: 'Ascending Triangle',
+                svg: SVG(`${L('20,24 185,24','#ef4444',1.5,'4 3')}${L('20,80 150,30','#22c55e',1.5,'4 3')}${L('20,78 45,30 70,60 95,30 120,45 150,28 175,12','#93c5fd')}`),
+                what: 'A flat ceiling with rising lows squeezing price into a corner.',
+                watch: 'Pressure builds under resistance. A break above the flat top is often watched as a continuation up.'
+            },
+            {
+                name: 'Bull Flag',
+                svg: SVG(`${L('12,82 40,22','#22c55e',2.5)}${L('40,26 78,44','#94a3b8',1.2,'3 3')}${L('50,20 88,38','#94a3b8',1.2,'3 3')}${L('78,40 105,14','#22c55e',2.5)}`),
+                what: 'A sharp rise (pole), a small calm drift down (flag), then another push up.',
+                watch: 'A pause inside a strong move. Traders watch for the move to resume in the same direction.'
+            },
+            {
+                name: 'Candles & Doji',
+                svg: SVG(`<line x1="45" y1="14" x2="45" y2="78" stroke="#22c55e" stroke-width="1.5"/><rect x="36" y="30" width="18" height="34" fill="#22c55e"/><line x1="100" y1="16" x2="100" y2="80" stroke="#ef4444" stroke-width="1.5"/><rect x="91" y="34" width="18" height="34" fill="#ef4444"/><line x1="155" y1="20" x2="155" y2="74" stroke="#94a3b8" stroke-width="1.5"/><line x1="145" y1="47" x2="165" y2="47" stroke="#94a3b8" stroke-width="3"/>`),
+                what: 'Green = close above open (buyers won the bar). Red = close below open (sellers won). A Doji (cross) = open ≈ close.',
+                watch: 'A Doji shows indecision. After a big move it can hint the move is losing steam — but only a hint.'
+            }
+        ];
+
+        app.openLearn = function() {
+            document.getElementById('learn-body').innerHTML = LEARN_PATTERNS.map(p => `
+                <div class="bg-slate-800/60 rounded border border-slate-700 p-2">
+                    ${p.svg}
+                    <p class="font-bold text-emerald-300 text-sm mt-2">${p.name}</p>
+                    <p class="text-[11px] text-gray-300 mt-1 leading-snug"><span class="text-gray-500">Looks like:</span> ${p.what}</p>
+                    <p class="text-[11px] text-gray-300 mt-1 leading-snug"><span class="text-gray-500">Traders watch:</span> ${p.watch}</p>
+                </div>`).join('');
+            document.getElementById('learn-modal').classList.remove('hidden');
+        };
+        app.closeLearn = function() {
+            document.getElementById('learn-modal').classList.add('hidden');
+        };
+
+        // --- AUTO PATTERN DETECTION on the current chart --------------------------
+        // Approximate: finds swing pivots and matches a few well-defined shapes.
+        // Detection is fuzzy and often wrong — it is a hint, never a signal to trade.
+        const learnByName = (name) => LEARN_PATTERNS.find(p => p.name === name);
+        const PATTERN_NAME = {
+            sr: 'Support & Resistance', up: 'Uptrend', down: 'Downtrend',
+            dtop: 'Double Top (M)', dbot: 'Double Bottom (W)', hns: 'Head & Shoulders',
+            asctri: 'Ascending Triangle', range: 'Support & Resistance'
+        };
+
+        app.detectPattern = function() {
+            const data = this.m.data;
+            if (data.length < 20) return { id: null, name: null, msg: 'Not enough candles yet — let the chart build a bit.', trend: 'Building', points: [] };
+            const seg = data.slice(-Math.min(60, data.length));
+            const highs = seg.map(c => c.high), lows = seg.map(c => c.low), closes = seg.map(c => c.close);
+            const price = closes[closes.length - 1];
+            const near = (a, b, tol) => Math.abs(a - b) / ((a + b) / 2) < tol;
+            const TOL = 0.004;
+            const P = (pv, kind, label) => ({ time: seg[pv.i].time, price: pv.v, kind, label });
+
+            // swing pivots (window k on each side)
+            const k = 2, sH = [], sL = [];
+            for (let i = k; i < seg.length - k; i++) {
+                let isH = true, isL = true;
+                for (let j = 1; j <= k; j++) {
+                    if (highs[i] <= highs[i - j] || highs[i] <= highs[i + j]) isH = false;
+                    if (lows[i] >= lows[i - j] || lows[i] >= lows[i + j]) isL = false;
+                }
+                if (isH) sH.push({ i, v: highs[i] });
+                if (isL) sL.push({ i, v: lows[i] });
+            }
+
+            // trend via least-squares slope, as % across the window
+            const n = closes.length; let sx = 0, sy = 0, sxy = 0, sxx = 0;
+            for (let i = 0; i < n; i++) { sx += i; sy += closes[i]; sxy += i * closes[i]; sxx += i * i; }
+            const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+            const slopePct = slope * n / price * 100;
+            const trend = slopePct > 1.2 ? 'Uptrend' : (slopePct < -1.2 ? 'Downtrend' : 'Sideways / range');
+
+            // Head & Shoulders
+            if (sH.length >= 3) {
+                const [a, b, c] = sH.slice(-3);
+                if (b.v > a.v && b.v > c.v && near(a.v, c.v, TOL * 1.6))
+                    return { id: 'hns', name: 'Head & Shoulders', trend,
+                        msg: `Three peaks with a higher middle — head ≈ ${b.v.toFixed(0)}, shoulders ≈ ${a.v.toFixed(0)} / ${c.v.toFixed(0)}.`,
+                        points: [P(a,'high','LS'), P(b,'high','H'), P(c,'high','RS')] };
+            }
+            // Double Top
+            if (sH.length >= 2) {
+                const [a, b] = sH.slice(-2);
+                if (near(a.v, b.v, TOL)) return { id: 'dtop', name: 'Double Top (M)', trend,
+                    msg: `Two peaks at about the same level — ${a.v.toFixed(0)} and ${b.v.toFixed(0)}.`,
+                    points: [P(a,'high','1'), P(b,'high','2')] };
+            }
+            // Double Bottom
+            if (sL.length >= 2) {
+                const [a, b] = sL.slice(-2);
+                if (near(a.v, b.v, TOL)) return { id: 'dbot', name: 'Double Bottom (W)', trend,
+                    msg: `Two troughs at about the same level — ${a.v.toFixed(0)} and ${b.v.toFixed(0)}.`,
+                    points: [P(a,'low','1'), P(b,'low','2')] };
+            }
+            // Ascending triangle
+            if (sH.length >= 2 && sL.length >= 2) {
+                const h = sH.slice(-2), l = sL.slice(-2);
+                if (near(h[0].v, h[1].v, TOL) && l[1].v > l[0].v)
+                    return { id: 'asctri', name: 'Ascending Triangle', trend,
+                        msg: `Flat resistance near ${h[1].v.toFixed(0)} with rising lows underneath.`,
+                        points: [P(h[0],'high','R'), P(h[1],'high','R'), P(l[0],'low','↑'), P(l[1],'low','↑')] };
+            }
+            // fallback: trend / range (mark the latest swing high & low as the range)
+            const pts = [];
+            if (sH.length) pts.push(P(sH[sH.length-1], 'high', 'Res'));
+            if (sL.length) pts.push(P(sL[sL.length-1], 'low', 'Sup'));
+            const id = slopePct > 1.2 ? 'up' : (slopePct < -1.2 ? 'down' : 'range');
+            const name = id === 'up' ? 'Uptrend' : (id === 'down' ? 'Downtrend' : 'Support & Resistance');
+            const msg = id === 'range'
+                ? `Price is drifting sideways (slope ~${slopePct.toFixed(1)}%). No clear named pattern right now.`
+                : `Overall slope is ${id} (~${slopePct.toFixed(1)}% across the window).`;
+            return { id, name, msg, trend, points: pts };
+        };
+
+        // Continuously reflect trend + pattern on the live chart (auto, throttled).
+        app.updateLiveDetection = function() {
+            const r = this.detectPattern();
+            const badge = document.getElementById('trend-badge');
+            if (badge) {
+                const tColor = r.trend === 'Uptrend' ? 'text-green-400' : (r.trend === 'Downtrend' ? 'text-red-400' : 'text-gray-300');
+                const patTxt = (r.name && r.id && !['up','down','range'].includes(r.id)) ? ` · <span class="text-amber-300">${r.name}</span>` : '';
+                badge.innerHTML = `<span class="${tColor}">${r.trend}</span>${patTxt}`;
+            }
+            // draw markers for the detected pivots
+            const markers = (r.points || []).map(p => ({
+                time: p.time,
+                position: p.kind === 'high' ? 'aboveBar' : 'belowBar',
+                color: p.kind === 'high' ? '#f59e0b' : '#22c55e',
+                shape: 'circle',
+                text: p.label
+            })).sort((a,b) => (a.time > b.time ? 1 : -1));
+            this.c.setMarkers(markers);
+        };
+
+        app.scanPattern = function() {
+            document.getElementById('scan-body').innerHTML = 'Scanning…';
+            document.getElementById('scan-modal').classList.remove('hidden');
+            setTimeout(() => {
+                const r = this.detectPattern();
+                const modeNote = this.dataMode === 'LIVE'
+                    ? 'Scanned your live Angel One candles.'
+                    : 'Scanned simulated candles (switch to Go Live for real data).';
+                if (!r.id) {
+                    document.getElementById('scan-body').innerHTML =
+                        `<p class="text-gray-300">${r.msg}</p><p class="text-[10px] text-gray-500 mt-2">${modeNote}</p>`;
+                    return;
+                }
+                const lp = learnByName(PATTERN_NAME[r.id]);
+                document.getElementById('scan-body').innerHTML = `
+                    <p class="text-[11px] text-gray-400 mb-2">${modeNote}</p>
+                    ${lp ? lp.svg : ''}
+                    <p class="font-bold text-emerald-300 text-base mt-2">Detected: ${lp ? lp.name : r.id}</p>
+                    <p class="text-[12px] text-gray-200 mt-1 leading-snug"><span class="text-gray-500">On your chart:</span> ${r.msg}</p>
+                    ${lp ? `<p class="text-[12px] text-gray-200 mt-1 leading-snug"><span class="text-gray-500">What it usually indicates:</span> ${lp.watch}</p>` : ''}
+                    <div class="mt-3 p-2 rounded bg-slate-800 border border-slate-700 text-[11px] leading-snug text-amber-200">
+                        This is an approximate, automated guess — pattern detection is fuzzy and frequently wrong.
+                        Treat it as a hint to look closer, not a signal. Confirm it yourself, use a stop-loss, and size by risk.
+                    </div>`;
+            }, 30);
+        };
+        app.closeScan = function() {
+            document.getElementById('scan-modal').classList.add('hidden');
+        };
+
+        // --- PATTERN QUIZ: reinforce the Learn patterns -------------------------
+        app._quiz = { score: 0, total: 0, answer: null };
+        app.openQuiz = function() {
+            document.getElementById('quiz-modal').classList.remove('hidden');
+            this.nextQuiz();
+        };
+        app.closeQuiz = function() { document.getElementById('quiz-modal').classList.add('hidden'); };
+        app.nextQuiz = function() {
+            const pool = LEARN_PATTERNS;
+            const correct = pool[Math.floor(Math.random() * pool.length)];
+            // 4 options incl. the correct one
+            const opts = [correct];
+            while (opts.length < 4) {
+                const c = pool[Math.floor(Math.random() * pool.length)];
+                if (!opts.includes(c)) opts.push(c);
+            }
+            for (let i = opts.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [opts[i], opts[j]] = [opts[j], opts[i]]; }
+            this._quiz.answer = correct.name;
+            document.getElementById('quiz-score').innerText = this._quiz.total ? `Score ${this._quiz.score}/${this._quiz.total}` : '';
+            document.getElementById('quiz-body').innerHTML = `
+                <p class="text-[12px] text-gray-400 mb-2">Which pattern is this?</p>
+                ${correct.svg}
+                <div class="grid grid-cols-1 gap-2 mt-3">
+                    ${opts.map(o => `<button onclick="app.answerQuiz('${o.name.replace(/'/g,"\\'")}')" class="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-2 text-sm">${o.name}</button>`).join('')}
+                </div>
+                <div id="quiz-feedback" class="mt-3"></div>`;
+        };
+        app.answerQuiz = function(choice) {
+            this._quiz.total++;
+            const correct = choice === this._quiz.answer;
+            if (correct) this._quiz.score++;
+            const lp = LEARN_PATTERNS.find(p => p.name === this._quiz.answer);
+            document.getElementById('quiz-score').innerText = `Score ${this._quiz.score}/${this._quiz.total}`;
+            document.getElementById('quiz-feedback').innerHTML = `
+                <div class="p-2 rounded border ${correct ? 'border-green-500/60 bg-green-900/20 text-green-300' : 'border-red-500/60 bg-red-900/20 text-red-300'} text-[12px]">
+                    ${correct ? '✓ Correct!' : `✗ It was <b>${this._quiz.answer}</b>.`}
+                    <p class="text-gray-300 mt-1 leading-snug">${lp ? lp.watch : ''}</p>
+                </div>
+                <button onclick="app.nextQuiz()" class="w-full mt-2 bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs py-2 rounded uppercase">Next question</button>`;
+        };
+
+        // --- PRE-TRADE CHECKLIST: build discipline before entering ---------------
+        app.openChecklist = function() {
+            const capital = this.bal;
+            const sl  = parseFloat(document.getElementById('sl-points').value)  || 0;
+            const tgt = parseFloat(document.getElementById('tgt-points').value) || 0;
+            const lots = parseInt(document.getElementById('lot-size').value) || 1;
+            const lotSz = this.m.indices[this.m.cIdx].lot;
+            const riskRs = sl * lotSz * lots;
+            const riskPct = capital ? (riskRs / capital * 100) : 0;
+            const sig = this.ai.analyze(this.c, this.m);
+
+            const auto = [
+                { ok: !!(sig && sig.type), label: 'Direction is clear (signal is not WAIT)',
+                  note: sig && sig.type ? `Signal: ${sig.action}` : 'Signal is WAIT — no confirmed edge' },
+                { ok: sl > 0, label: 'Stop-loss is set', note: sl > 0 ? `SL ${sl} pts` : 'No SL set!' },
+                { ok: tgt >= sl && sl > 0, label: 'Reward ≥ risk (target ≥ SL)', note: `target ${tgt} / SL ${sl}` },
+                { ok: riskPct > 0 && riskPct <= 2, label: 'Risk ≤ 2% of capital',
+                  note: `risking ${formatCurr(riskRs)} (${riskPct.toFixed(1)}%)` },
+                { ok: this.dataMode === 'LIVE' ? this.isMarketOpen() : true,
+                  label: 'Market is open', note: this.dataMode==='LIVE' ? (this.isMarketOpen()?'open':'closed') : 'sim' },
+            ];
+            const manual = [
+                'I am NOT holding into the last hour on expiry day (theta crush).',
+                'I checked for major news/events around now.',
+                'This size was chosen by risk — not by greed or FOMO.',
+                'I fully accept this trade can be a loss.',
+            ];
+            const autoRows = auto.map(a => `
+                <div class="flex items-start gap-2 py-1">
+                    <span class="${a.ok ? 'text-green-400' : 'text-red-400'} mt-0.5">${a.ok ? '✓' : '✗'}</span>
+                    <div><p class="text-[12px] ${a.ok ? 'text-gray-200' : 'text-red-300'}">${a.label}</p>
+                    <p class="text-[10px] text-gray-500">${a.note}</p></div>
+                </div>`).join('');
+            const manualRows = manual.map((m, i) => `
+                <label class="flex items-start gap-2 py-1 cursor-pointer">
+                    <input type="checkbox" class="chk-manual mt-0.5" onchange="app.refreshChecklistState()">
+                    <span class="text-[12px] text-gray-200">${m}</span>
+                </label>`).join('');
+            const autoPass = auto.every(a => a.ok);
+
+            document.getElementById('checklist-body').innerHTML = `
+                <p class="text-[11px] text-gray-400 mb-2">Auto-checks from your current setup:</p>
+                ${autoRows}
+                <hr class="border-slate-700 my-2">
+                <p class="text-[11px] text-gray-400 mb-1">Confirm honestly:</p>
+                ${manualRows}
+                <div id="checklist-verdict" class="mt-3"></div>`;
+            this._autoPass = autoPass;
+            document.getElementById('checklist-modal').classList.remove('hidden');
+            this.refreshChecklistState();
+        };
+        app.refreshChecklistState = function() {
+            const boxes = Array.from(document.querySelectorAll('.chk-manual'));
+            const allManual = boxes.length && boxes.every(b => b.checked);
+            const ok = this._autoPass && allManual;
+            document.getElementById('checklist-verdict').innerHTML = ok
+                ? `<div class="p-2 rounded border border-green-500/60 bg-green-900/20 text-green-300 text-[12px]">All checks pass — this looks like a disciplined trade. Remember: discipline improves odds, it does not guarantee profit.</div>`
+                : `<div class="p-2 rounded border border-amber-500/60 bg-amber-900/20 text-amber-200 text-[12px]">${this._autoPass ? 'Tick every box honestly before you trade.' : 'Fix the ✗ items above first — especially SL and risk %.'}</div>`;
+        };
+        app.closeChecklist = function() { document.getElementById('checklist-modal').classList.add('hidden'); };
 
         window.onload = () => app.init();
     </script>
