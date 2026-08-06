@@ -130,3 +130,25 @@ reliable, and realistic. Test in paper/DRY_RUN before risking real money.
   (live or sim), showing the current trend (Up/Down/Sideways) and any detected pattern.
 - **Chart markers** — the pivots forming the detected pattern are circled on the chart
   (peaks above, troughs below). Approximate and often wrong — a hint, not a signal.
+
+## StockGro-inspired additions
+
+- **Option Screener** — a strike ladder around spot (ATM highlighted) with CE/PE model
+  premiums and moneyness (ITM/ATM/OTM), filterable by moneyness and max premium. Works
+  in sim and live (uses current spot). Premiums are model estimates for learning; real
+  premiums need live per-strike quotes.
+- **Gamified learning** — XP, daily streak, and badges for using Learn and the Quiz,
+  saved on device. Encourages regular, honest practice (not real-money contests).
+- **Auto trend/pattern works in BOTH practice and live** — the chart badge + markers
+  update in simulation (incl. practice mode) and on live Angel One data.
+
+## Live premiums, breakout levels, premium UI
+
+- **Screener live premiums** — "Live premiums" button pulls the nearest-expiry option
+  chain from the broker, batch-quotes strikes near ATM (/api/quotes), and shows real
+  premiums; falls back to model values on any error. Experimental — verify on your account.
+- **Breakout / neckline line** — the detected pattern's key level (double top/bottom
+  neckline, H&S neckline, triangle resistance) is drawn as a dashed line on the chart,
+  and named in the Scan Pattern result.
+- **Premium visual polish** — deeper gradient background, frosted glass panels, gradient
+  wordmark, Inter typeface, refined accents. Structure unchanged.

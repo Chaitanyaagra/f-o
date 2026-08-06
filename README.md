@@ -22,9 +22,12 @@ Do hisse hain: `index.html` (browser UI / paper-trading simulator) aur
    ```
    Default: `http://127.0.0.1:8000` (sirf apne computer par).
 
-4. **UI kholo**
-   `index.html` ko browser mein kholo. Header mein **Connect Broker** dabao.
-   - Chart tab tak chalega jab tak internet ho (chart library CDN se aati hai).
+4. **UI kholo (recommended tareeka)**
+   Browser mein **http://127.0.0.1:8000/** kholo (backend khud index.html serve karta hai).
+   Isse frontend aur backend ek hi origin par rehte hain — **Connect Broker** bina CORS dikkat ke chalega.
+   Phir header mein **Connect Broker** dabao.
+   - `index.html` ko seedhe double-click (file://) karne se broker connect **fail** ho sakta hai (cross-origin). Isliye upar wala URL use karo.
+   - Chart CDN se aati hai, to internet chahiye.
 
 ## Kya-kya hai
 

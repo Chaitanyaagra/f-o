@@ -4,7 +4,39 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI TradePro V9 (Auto-Quant Terminal)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- OPTION SCREENER MODAL -->
+    <div id="screener-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-lg w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-table-list text-purple-400 mr-2"></i>Option Screener <span id="screener-spot" class="text-xs text-gray-400 font-normal ml-2"></span></h2>
+                <button onclick="app.closeScreener()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div class="flex flex-wrap gap-2 mb-2 text-xs">
+                <select id="scr-money" onchange="app.renderScreener()" class="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white outline-none">
+                    <option value="ALL">All strikes</option>
+                    <option value="ATM">ATM only</option>
+                    <option value="ITM">ITM only</option>
+                    <option value="OTM">OTM only</option>
+                </select>
+                <label class="flex items-center gap-1 text-gray-400">Max premium
+                    <input id="scr-maxprem" type="number" placeholder="any" oninput="app.renderScreener()" class="w-20 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white outline-none">
+                </label>
+                <button id="scr-live-btn" onclick="app.fetchLivePremiums()" class="bg-purple-700 hover:bg-purple-600 text-white px-2 py-1 rounded text-[11px] uppercase transition"><i class="fa-solid fa-bolt mr-1"></i>Live premiums</button>
+                <span id="scr-source" class="text-[10px] text-gray-500 self-center"></span>
+            </div>
+            <div id="screener-body" class="text-sm text-gray-200"></div>
+            <p class="mt-2 text-[9px] text-gray-500 leading-tight">
+                Premiums here are model estimates for learning how strikes relate to spot — real market premiums differ
+                (they depend on volatility, time to expiry, and demand). For real live premiums, connect the broker and
+                pull per-strike quotes. Not advice.
+            </p>
+        </div>
+    </div>
+
     <!-- PATTERN QUIZ MODAL -->
     <div id="quiz-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
         <div class="glass-panel max-w-md w-full p-5 max-h-[90vh] overflow-y-auto border border-slate-600">
@@ -12,6 +44,7 @@
                 <h2 class="font-bold text-lg text-white"><i class="fa-solid fa-circle-question text-teal-400 mr-2"></i>Pattern Quiz <span id="quiz-score" class="text-xs text-gray-400 font-normal ml-2"></span></h2>
                 <button onclick="app.closeQuiz()" class="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
             </div>
+            <div id="quiz-gamify"></div>
             <div id="quiz-body" class="text-sm text-gray-200"></div>
         </div>
     </div>
@@ -49,6 +82,7 @@
                 Patterns show what traders often watch for — they are tendencies, not guarantees. Many fail. Never trade a
                 pattern alone: wait for confirmation, use a stop-loss, and size by risk. This is education, not advice.
             </p>
+            <div id="learn-gamify"></div>
             <div id="learn-body" class="grid sm:grid-cols-2 gap-3"></div>
         </div>
     </div>
@@ -67,13 +101,43 @@
     <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --bg-dark: #020617; --panel-bg: rgba(15, 23, 42, 0.9); }
-        body { background-color: var(--bg-dark); color: #f8fafc; font-family: 'Inter', sans-serif; overflow: hidden; }
-        .glass-panel { background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
+        :root {
+            --bg-dark: #05070f;
+            --panel-bg: rgba(17, 24, 42, 0.72);
+            --accent: #6366f1;      /* indigo */
+            --accent-2: #22d3ee;    /* cyan glow */
+            --hairline: rgba(148,163,184,0.14);
+        }
+        body {
+            color: #f8fafc; font-family: 'Inter', sans-serif; overflow: hidden;
+            background:
+                radial-gradient(1200px 600px at 12% -12%, rgba(99,102,241,0.12), transparent 60%),
+                radial-gradient(900px 520px at 100% -5%, rgba(34,211,238,0.07), transparent 55%),
+                linear-gradient(180deg, #070b18 0%, #04060d 100%);
+            background-attachment: fixed;
+        }
+        .glass-panel {
+            background: linear-gradient(180deg, rgba(30,41,59,0.55), rgba(15,23,42,0.78));
+            border: 1px solid var(--hairline);
+            border-radius: 12px;
+            backdrop-filter: blur(10px) saturate(120%);
+            -webkit-backdrop-filter: blur(10px) saturate(120%);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 28px rgba(0,0,0,0.38);
+            transition: border-color .2s ease, box-shadow .2s ease;
+        }
+        .glass-panel:hover { border-color: rgba(148,163,184,0.22); }
+        .brand-gradient {
+            background: linear-gradient(90deg, #a5b4fc 0%, #67e8f9 100%);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-thumb { background: linear-gradient(#334155, #1e293b); border-radius: 8px; }
+        *::-webkit-scrollbar-track { background: transparent; }
         * { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
-        .btn-glow:hover:not(:disabled) { box-shadow: 0 0 15px rgba(34,197,94,0.4); transform: translateY(-1px); }
+        button { transition: all .15s ease; }
+        .btn-glow:hover:not(:disabled) { box-shadow: 0 0 18px rgba(99,102,241,0.45); transform: translateY(-1px); }
         .btn-glow:disabled { opacity: 0.5; cursor: not-allowed; }
-        .tab-active { border-bottom: 2px solid #3b82f6; color: #60a5fa; font-weight: bold; }
+        .tab-active { border-bottom: 2px solid var(--accent); color: #a5b4fc; font-weight: 700; }
         .tab-inactive { color: #64748b; font-weight: 500; }
         .tab-inactive:hover { color: #cbd5e1; }
     </style>
@@ -84,8 +148,8 @@
     <header class="glass-panel p-3 flex justify-between items-center shrink-0 shadow-md">
         <div class="flex items-center gap-4">
             <div class="flex items-center gap-2">
-                <i class="fa-solid fa-bolt text-xl text-yellow-500"></i>
-                <h1 class="text-lg font-bold tracking-wider">TradePro <span class="text-[9px] bg-gradient-to-r from-blue-600 to-purple-600 px-1.5 py-0.5 rounded ml-1 uppercase">V9 Quant</span></h1>
+                <i class="fa-solid fa-bolt text-xl" style="color:#67e8f9; filter: drop-shadow(0 0 6px rgba(103,232,249,0.5));"></i>
+                <h1 class="text-lg font-bold tracking-wide"><span class="brand-gradient">TradePro</span> <span class="text-[9px] bg-gradient-to-r from-indigo-500 to-cyan-500 px-1.5 py-0.5 rounded ml-1 uppercase text-white">V9 Quant</span></h1>
             </div>
             <div class="h-5 w-px bg-slate-700"></div>
             <div class="flex gap-4 text-xs font-mono items-center">
@@ -269,6 +333,9 @@
                 <button onclick="app.openQuiz()" class="w-full mt-2 bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs py-2 rounded uppercase tracking-wide transition">
                     <i class="fa-solid fa-circle-question mr-1"></i>Pattern Quiz
                 </button>
+                <button onclick="app.openScreener()" class="w-full mt-2 bg-purple-700 hover:bg-purple-600 text-white font-bold text-xs py-2 rounded uppercase tracking-wide transition">
+                    <i class="fa-solid fa-table-list mr-1"></i>Option Screener
+                </button>
             </div>
 
             <!-- Position Sizing & Execution -->
@@ -359,8 +426,12 @@
             return brokerage + stt + exch + sebi + stamp + gst;
         }
 
-        // Where backend.py is running. Change if you host it elsewhere.
-        const BACKEND_URL = 'http://127.0.0.1:8000';
+        // Backend location. When the page is served BY the backend (recommended:
+        // open http://127.0.0.1:8000/), use that same origin — no CORS issues.
+        // If you opened the file directly (file://), fall back to localhost:8000.
+        const BACKEND_URL = (location.protocol === 'http:' || location.protocol === 'https:')
+            ? location.origin
+            : 'http://127.0.0.1:8000';
 
         // Angel One spot-index tokens for charting. Verify via /api/search if a
         // chart doesn't load (exchange/token formats can change).
@@ -495,6 +566,18 @@
             }
 
             setMarkers(markers) { try { this.candles.setMarkers(markers || []); } catch(e){} }
+
+            setLevel(price, title, color) {
+                try {
+                    if (this._level) { this.candles.removePriceLine(this._level); this._level = null; }
+                    if (price != null && isFinite(price)) {
+                        this._level = this.candles.createPriceLine({
+                            price, color: color || '#eab308', lineWidth: 1, lineStyle: 2,
+                            axisLabelVisible: true, title: title || 'level'
+                        });
+                    }
+                } catch(e){}
+            }
         }
 
         // --- 3. AUTO-QUANT AI ENGINE ---
@@ -606,7 +689,7 @@
         };
 
         app.init = function() {
-            const NullChart = { update(){}, updateTick(){}, setMarkers(){}, lastEma:0, lastSma:0 };
+            const NullChart = { update(){}, updateTick(){}, setMarkers(){}, setLevel(){}, lastEma:0, lastSma:0 };
             if (typeof LightweightCharts === 'undefined') {
                 notify('Chart library load nahi hui (internet/CDN check karo). Signal engine phir bhi chal raha hai.', 'warn');
                 const el = document.getElementById('tvchart');
@@ -640,6 +723,7 @@
 
             this.resetUI();
             this.loadJournal();
+            this.loadGamify();
             this.render();
             try { this.updateLiveDetection(); } catch(e){}
             setInterval(() => this.tick(), CONSTANTS.TICK_MS);
@@ -1381,6 +1465,11 @@
         ];
 
         app.openLearn = function() {
+            this.markActiveToday();
+            const today = new Date().toISOString().slice(0,10);
+            if (this.gamify.learnXpDate !== today) { this.awardXp(5); this.gamify.learnXpDate = today; this.saveGamify(); this.checkBadges(); }
+            if (!this.gamify.badges.includes('allpat')) { this.gamify.badges.push('allpat'); this.saveGamify(); }
+            this.renderGamifyBar();
             document.getElementById('learn-body').innerHTML = LEARN_PATTERNS.map(p => `
                 <div class="bg-slate-800/60 rounded border border-slate-700 p-2">
                     ${p.svg}
@@ -1413,6 +1502,8 @@
             const near = (a, b, tol) => Math.abs(a - b) / ((a + b) / 2) < tol;
             const TOL = 0.004;
             const P = (pv, kind, label) => ({ time: seg[pv.i].time, price: pv.v, kind, label });
+            const lowestBetween = (i1, i2) => { let m = Infinity; for (let i = Math.min(i1,i2)+1; i < Math.max(i1,i2); i++) m = Math.min(m, lows[i]); return isFinite(m) ? m : null; };
+            const highestBetween = (i1, i2) => { let m = -Infinity; for (let i = Math.min(i1,i2)+1; i < Math.max(i1,i2); i++) m = Math.max(m, highs[i]); return isFinite(m) ? m : null; };
 
             // swing pivots (window k on each side)
             const k = 2, sH = [], sL = [];
@@ -1439,21 +1530,25 @@
                 if (b.v > a.v && b.v > c.v && near(a.v, c.v, TOL * 1.6))
                     return { id: 'hns', name: 'Head & Shoulders', trend,
                         msg: `Three peaks with a higher middle — head ≈ ${b.v.toFixed(0)}, shoulders ≈ ${a.v.toFixed(0)} / ${c.v.toFixed(0)}.`,
-                        points: [P(a,'high','LS'), P(b,'high','H'), P(c,'high','RS')] };
+                        points: [P(a,'high','LS'), P(b,'high','H'), P(c,'high','RS')],
+                        level: (() => { const t1 = lowestBetween(a.i,b.i), t2 = lowestBetween(b.i,c.i); return (t1!=null&&t2!=null)?(t1+t2)/2:(t1||t2); })(),
+                        levelLabel: 'Neckline · break below = bearish' };
             }
             // Double Top
             if (sH.length >= 2) {
                 const [a, b] = sH.slice(-2);
                 if (near(a.v, b.v, TOL)) return { id: 'dtop', name: 'Double Top (M)', trend,
                     msg: `Two peaks at about the same level — ${a.v.toFixed(0)} and ${b.v.toFixed(0)}.`,
-                    points: [P(a,'high','1'), P(b,'high','2')] };
+                    points: [P(a,'high','1'), P(b,'high','2')],
+                    level: lowestBetween(a.i, b.i), levelLabel: 'Neckline · break below = bearish' };
             }
             // Double Bottom
             if (sL.length >= 2) {
                 const [a, b] = sL.slice(-2);
                 if (near(a.v, b.v, TOL)) return { id: 'dbot', name: 'Double Bottom (W)', trend,
                     msg: `Two troughs at about the same level — ${a.v.toFixed(0)} and ${b.v.toFixed(0)}.`,
-                    points: [P(a,'low','1'), P(b,'low','2')] };
+                    points: [P(a,'low','1'), P(b,'low','2')],
+                    level: highestBetween(a.i, b.i), levelLabel: 'Neckline · break above = bullish' };
             }
             // Ascending triangle
             if (sH.length >= 2 && sL.length >= 2) {
@@ -1461,7 +1556,8 @@
                 if (near(h[0].v, h[1].v, TOL) && l[1].v > l[0].v)
                     return { id: 'asctri', name: 'Ascending Triangle', trend,
                         msg: `Flat resistance near ${h[1].v.toFixed(0)} with rising lows underneath.`,
-                        points: [P(h[0],'high','R'), P(h[1],'high','R'), P(l[0],'low','↑'), P(l[1],'low','↑')] };
+                        points: [P(h[0],'high','R'), P(h[1],'high','R'), P(l[0],'low','↑'), P(l[1],'low','↑')],
+                        level: h[1].v, levelLabel: 'Resistance · break above = bullish' };
             }
             // fallback: trend / range (mark the latest swing high & low as the range)
             const pts = [];
@@ -1472,7 +1568,8 @@
             const msg = id === 'range'
                 ? `Price is drifting sideways (slope ~${slopePct.toFixed(1)}%). No clear named pattern right now.`
                 : `Overall slope is ${id} (~${slopePct.toFixed(1)}% across the window).`;
-            return { id, name, msg, trend, points: pts };
+            const level = id === 'range' && sH.length ? sH[sH.length-1].v : null;
+            return { id, name, msg, trend, points: pts, level, levelLabel: 'Resistance' };
         };
 
         // Continuously reflect trend + pattern on the live chart (auto, throttled).
@@ -1493,6 +1590,7 @@
                 text: p.label
             })).sort((a,b) => (a.time > b.time ? 1 : -1));
             this.c.setMarkers(markers);
+            this.c.setLevel(r.level, r.levelLabel, '#eab308');
         };
 
         app.scanPattern = function() {
@@ -1514,6 +1612,7 @@
                     ${lp ? lp.svg : ''}
                     <p class="font-bold text-emerald-300 text-base mt-2">Detected: ${lp ? lp.name : r.id}</p>
                     <p class="text-[12px] text-gray-200 mt-1 leading-snug"><span class="text-gray-500">On your chart:</span> ${r.msg}</p>
+                    ${(r.level != null && isFinite(r.level)) ? `<p class="text-[12px] text-yellow-300 mt-1 leading-snug"><span class="text-gray-500">Key level:</span> ${r.levelLabel} ≈ <b>${r.level.toFixed(0)}</b> (drawn on the chart)</p>` : ''}
                     ${lp ? `<p class="text-[12px] text-gray-200 mt-1 leading-snug"><span class="text-gray-500">What it usually indicates:</span> ${lp.watch}</p>` : ''}
                     <div class="mt-3 p-2 rounded bg-slate-800 border border-slate-700 text-[11px] leading-snug text-amber-200">
                         This is an approximate, automated guess — pattern detection is fuzzy and frequently wrong.
@@ -1529,6 +1628,7 @@
         app._quiz = { score: 0, total: 0, answer: null };
         app.openQuiz = function() {
             document.getElementById('quiz-modal').classList.remove('hidden');
+            this.markActiveToday(); this.renderGamifyBar();
             this.nextQuiz();
         };
         app.closeQuiz = function() { document.getElementById('quiz-modal').classList.add('hidden'); };
@@ -1556,6 +1656,10 @@
             this._quiz.total++;
             const correct = choice === this._quiz.answer;
             if (correct) this._quiz.score++;
+            // gamification
+            this.gamify.quizTotal++;
+            if (correct) { this.gamify.quizCorrect++; this.awardXp(10); }
+            this.markActiveToday(); this.saveGamify(); this.checkBadges(); this.renderGamifyBar();
             const lp = LEARN_PATTERNS.find(p => p.name === this._quiz.answer);
             document.getElementById('quiz-score').innerText = `Score ${this._quiz.score}/${this._quiz.total}`;
             document.getElementById('quiz-feedback').innerHTML = `
@@ -1626,6 +1730,143 @@
                 : `<div class="p-2 rounded border border-amber-500/60 bg-amber-900/20 text-amber-200 text-[12px]">${this._autoPass ? 'Tick every box honestly before you trade.' : 'Fix the ✗ items above first — especially SL and risk %.'}</div>`;
         };
         app.closeChecklist = function() { document.getElementById('checklist-modal').classList.add('hidden'); };
+
+        // --- OPTION SCREENER: build a strike ladder around spot (model premiums) --
+        app.buildOptionChain = function() {
+            const spot = (this.m.data[this.m.data.length-1] || {}).close || this.m.indices[this.m.cIdx].px;
+            const step = this.m.cIdx === 'BANKNIFTY' ? 100 : 50;
+            const atm = Math.round(spot / step) * step;
+            const rows = [];
+            for (let i = -8; i <= 8; i++) {
+                const K = atm + i * step;
+                const dist = Math.abs(K - spot);
+                const extrinsic = (spot * 0.003) * Math.exp(-Math.pow(dist / (spot * 0.01), 2)); // ATM ≈ 0.3% of spot
+                const ce = +(Math.max(0, spot - K) + extrinsic).toFixed(1);
+                const pe = +(Math.max(0, K - spot) + extrinsic).toFixed(1);
+                rows.push({
+                    K, ce, pe, dist,
+                    moneyCE: K < spot ? 'ITM' : (K > spot ? 'OTM' : 'ATM'),
+                    moneyPE: K > spot ? 'ITM' : (K < spot ? 'OTM' : 'ATM'),
+                    atm: K === atm
+                });
+            }
+            return { spot, atm, step, rows };
+        };
+        app.openScreener = function() {
+            document.getElementById('screener-modal').classList.remove('hidden');
+            this.renderScreener();
+        };
+        app.closeScreener = function() { document.getElementById('screener-modal').classList.add('hidden'); };
+        app.renderScreener = function() {
+            const chain = this.buildOptionChain();
+            const lp = this._livePrem;   // { expiry, map } when live premiums fetched
+            document.getElementById('screener-spot').innerText =
+                `${this.m.cIdx} spot ≈ ${chain.spot.toFixed(0)} · ATM ${chain.atm}` + (this.dataMode === 'LIVE' ? ' (live)' : ' (sim)');
+            const src = document.getElementById('scr-source');
+            if (src) src.innerText = lp ? `live premiums · exp ${lp.expiry}` : 'model premiums';
+            const money = document.getElementById('scr-money').value;
+            const maxP = parseFloat(document.getElementById('scr-maxprem').value);
+            const tag = m => `<span class="${m==='ITM'?'text-green-400':m==='ATM'?'text-amber-300':'text-gray-500'}">${m}</span>`;
+            chain.rows.forEach(r => {
+                if (lp) { const ce = lp.map['CE:'+r.K], pe = lp.map['PE:'+r.K]; if (ce != null) r.ce = ce; if (pe != null) r.pe = pe; }
+            });
+            const rows = chain.rows.filter(r => {
+                if (money !== 'ALL' && !(r.moneyCE === money || r.moneyPE === money || (money==='ATM'&&r.atm))) return false;
+                if (!isNaN(maxP) && Math.min(r.ce, r.pe) > maxP) return false;
+                return true;
+            });
+            const body = `
+                <table class="w-full text-center text-[12px]">
+                    <thead><tr class="text-gray-400 border-b border-slate-700">
+                        <th class="py-1">CE prem</th><th>CE</th><th class="text-white">Strike</th><th>PE</th><th>PE prem</th>
+                    </tr></thead>
+                    <tbody>
+                    ${rows.map(r => `
+                        <tr class="${r.atm ? 'bg-amber-900/20' : ''} border-b border-slate-800/60">
+                            <td class="py-1 font-mono text-green-300">${(+r.ce).toFixed(1)}</td>
+                            <td>${tag(r.moneyCE)}</td>
+                            <td class="font-mono font-bold ${r.atm ? 'text-amber-300' : 'text-white'}">${r.K}</td>
+                            <td>${tag(r.moneyPE)}</td>
+                            <td class="font-mono text-red-300">${(+r.pe).toFixed(1)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+                ${rows.length ? '' : '<p class="text-gray-500 text-center py-3">No strikes match the filter.</p>'}`;
+            document.getElementById('screener-body').innerHTML = body;
+        };
+
+        // --- GAMIFIED LEARNING: XP, daily streak, badges (saved on device) ------
+        const GAMIFY_KEY = 'aitradepro_gamify_v1';
+        const BADGE_LABELS = { xp100:'⚡100 XP', xp500:'⚡500 XP', quiz10:'🎯10 correct', quiz50:'🎯50 correct', streak3:'🔥3-day', streak7:'🔥7-day', allpat:'📘All patterns' };
+        app.gamify = { xp:0, streak:0, lastActive:null, learnXpDate:null, quizCorrect:0, quizTotal:0, badges:[] };
+        app.loadGamify = function(){ try{ const r=localStorage.getItem(GAMIFY_KEY); if(r) this.gamify={...this.gamify, ...JSON.parse(r)}; }catch(e){} };
+        app.saveGamify = function(){ try{ localStorage.setItem(GAMIFY_KEY, JSON.stringify(this.gamify)); }catch(e){} };
+        app.markActiveToday = function(){
+            const today = new Date().toISOString().slice(0,10);
+            if (this.gamify.lastActive === today) return;
+            const y = new Date(Date.now()-86400000).toISOString().slice(0,10);
+            this.gamify.streak = (this.gamify.lastActive === y) ? (this.gamify.streak+1) : 1;
+            this.gamify.lastActive = today;
+            this.saveGamify();
+        };
+        app.awardXp = function(n){ this.gamify.xp += n; this.saveGamify(); };
+        app.checkBadges = function(){
+            const add=(id,cond)=>{ if(cond && !this.gamify.badges.includes(id)){ this.gamify.badges.push(id); this.saveGamify(); notify('🏅 Badge unlocked: '+(BADGE_LABELS[id]||id), 'info'); } };
+            add('xp100', this.gamify.xp>=100); add('xp500', this.gamify.xp>=500);
+            add('quiz10', this.gamify.quizCorrect>=10); add('quiz50', this.gamify.quizCorrect>=50);
+            add('streak3', this.gamify.streak>=3); add('streak7', this.gamify.streak>=7);
+        };
+        app.renderGamifyBar = function(){
+            const g = this.gamify;
+            const badges = g.badges.length ? `<span class="text-gray-400">${g.badges.map(b=>BADGE_LABELS[b]||b).join(' · ')}</span>` : '<span class="text-gray-600">no badges yet</span>';
+            const html = `<div class="flex items-center gap-3 flex-wrap text-[11px] bg-slate-800/60 border border-slate-700 rounded p-2 mb-3">
+                <span class="text-yellow-300 font-bold">⚡ ${g.xp} XP</span>
+                <span class="text-orange-300 font-bold">🔥 ${g.streak}-day streak</span>
+                ${badges}</div>`;
+            ['quiz-gamify','learn-gamify'].forEach(id => { const e = document.getElementById(id); if(e) e.innerHTML = html; });
+        };
+
+        // Fetch REAL option premiums from the broker (nearest expiry, strikes near ATM).
+        // Experimental — needs testing against your live account; falls back to model on error.
+        app.fetchLivePremiums = async function() {
+            if (!this.session.connected) { notify('Connect the broker first (Go Live).', 'warn'); return; }
+            const btn = document.getElementById('scr-live-btn');
+            btn.disabled = true; btn.textContent = 'Fetching…';
+            try {
+                const ocRes = await fetch(`${BACKEND_URL}/api/option-chain?name=${this.m.cIdx}`);
+                const oc = await ocRes.json().catch(() => ({}));
+                const all = [...((oc.CE)||[]).map(x => ({...x, type:'CE'})), ...((oc.PE)||[]).map(x => ({...x, type:'PE'}))];
+                if (!all.length) throw new Error(oc.detail || 'No option instruments returned.');
+                const MON = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+                const parseExp = s => { const m = /^(\d{2})([A-Z]{3})(\d{4})$/.exec(String(s).toUpperCase()); if (!m) return null; const mo = MON.indexOf(m[2]); return mo < 0 ? null : new Date(+m[3], mo, +m[1]); };
+                const now = Date.now() - 86400000;
+                const exps = [...new Set(all.map(x => x.expiry))].map(e => ({ e, d: parseExp(e) })).filter(x => x.d).sort((a,b) => a.d - b.d);
+                const future = exps.find(x => x.d.getTime() >= now) || exps[0];
+                if (!future) throw new Error('Could not parse expiries.');
+                const norm = s => { const K = +s; return K > 100000 ? Math.round(K/100) : Math.round(K); };
+                const wanted = new Set(this.buildOptionChain().rows.map(r => r.K));
+                const sel = all.filter(x => x.expiry === future.e && wanted.has(norm(x.strike)));
+                if (!sel.length) throw new Error('No matching strikes for the nearest expiry.');
+                const qRes = await fetch(`${BACKEND_URL}/api/quotes`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Session-Token': this.session.token },
+                    body: JSON.stringify({ exchange: 'NFO', tokens: sel.map(x => String(x.token)) })
+                });
+                const q = await qRes.json().catch(() => ({}));
+                if (!qRes.ok || q.status !== 'success') throw new Error(q.detail || 'Quotes failed.');
+                const byTok = {}; (q.quotes || []).forEach(x => { byTok[String(x.token)] = x.ltp; });
+                const map = {};
+                sel.forEach(x => { const l = byTok[String(x.token)]; if (l != null) map[`${x.type}:${norm(x.strike)}`] = l; });
+                if (!Object.keys(map).length) throw new Error('No live prices returned.');
+                this._livePrem = { expiry: future.e, map };
+                notify('Live premiums loaded.', 'info');
+                this.renderScreener();
+            } catch (e) {
+                const hint = e.message === 'Failed to fetch' ? 'backend/broker reachable?' : e.message;
+                notify('Live premiums failed: ' + hint + ' — showing model.', 'error');
+            } finally {
+                btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i>Live premiums';
+            }
+        };
 
         window.onload = () => app.init();
     </script>

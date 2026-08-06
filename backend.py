@@ -35,6 +35,7 @@ from typing import Optional
 import pyotp
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -175,6 +176,19 @@ def health():
         "dry_run": DRY_RUN,
         "sdk_available": SmartConnect is not None,
     }
+
+
+@app.get("/")
+def serve_index():
+    """
+    Serve the frontend from the backend so the page and the API share one origin
+    (http://127.0.0.1:8000). This avoids all CORS/file:// problems — just open
+    http://127.0.0.1:8000/ in your browser after starting this server.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    if os.path.exists(path):
+        return FileResponse(path)
+    raise HTTPException(404, "index.html not found next to backend.py — keep both files in the same folder.")
 
 
 @app.post("/api/login")
@@ -432,6 +446,41 @@ def get_candles(req: CandleRequest):
             raise
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(500, detail=f"Candle fetch failed: {exc}") from exc
+
+
+class QuotesRequest(BaseModel):
+    exchange: str = "NFO"
+    tokens: list[str]
+
+
+@app.post("/api/quotes", dependencies=[Depends(require_session)])
+def get_quotes(req: QuotesRequest):
+    """Batch LTP for many tokens in one call (for the option screener). Read-only."""
+    if _smart_api is None:
+        raise HTTPException(401, "Not logged in.")
+    if not req.tokens:
+        return {"status": "success", "quotes": []}
+    key = f"quotes:{req.exchange}:{','.join(sorted(req.tokens))}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return {"status": "success", "quotes": cached, "cached": True}
+    with _lock:
+        try:
+            # getMarketData("LTP", {exchange: [tokens]}) returns fetched[] with ltp per token
+            data = _fetch_with_retry(
+                lambda: _smart_api.getMarketData("LTP", {req.exchange: req.tokens}),
+                "Quotes",
+            )
+            fetched = []
+            if isinstance(data, dict) and data.get("status"):
+                fetched = (data.get("data") or {}).get("fetched", [])
+            quotes = [{"token": str(f.get("symbolToken")), "ltp": f.get("ltp")} for f in fetched]
+            _cache_put(key, quotes, ttl=3.0)
+            return {"status": "success", "quotes": quotes}
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(500, detail=f"Quotes failed: {exc}") from exc
 
 
 if __name__ == "__main__":
