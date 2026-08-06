@@ -483,6 +483,57 @@ def get_quotes(req: QuotesRequest):
             raise HTTPException(500, detail=f"Quotes failed: {exc}") from exc
 
 
+# --------------------------------------------------------------------------- #
+# PUBLIC market data (NO broker login needed) — free source for a live chart.  #
+# Uses Yahoo Finance for the NIFTY / BANKNIFTY index. May be delayed ~15 min    #
+# and can differ slightly from your broker's real-time feed.                    #
+# --------------------------------------------------------------------------- #
+
+YF_SYMBOL = {"NIFTY": "^NSEI", "BANKNIFTY": "^NSEBANK"}
+
+
+@app.get("/api/public-candles")
+def public_candles(symbol: str = "NIFTY", interval: str = "5m", range: str = "5d"):
+    import json as _json
+    import urllib.parse
+    import urllib.request
+
+    yf = YF_SYMBOL.get(symbol.upper(), symbol)
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        f"{urllib.parse.quote(yf)}?interval={interval}&range={range}"
+    )
+    key = f"pub:{yf}:{interval}:{range}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return {"status": "success", "candles": cached, "cached": True}
+
+    def _do():
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return _json.loads(r.read())
+
+    try:
+        data = _fetch_with_retry(_do, "PublicCandles")
+        res = (((data or {}).get("chart") or {}).get("result") or [None])[0]
+        if not res:
+            raise HTTPException(502, "No data returned from the public source.")
+        ts = res.get("timestamp") or []
+        q = ((res.get("indicators") or {}).get("quote") or [{}])[0]
+        o, h, l, c = q.get("open", []), q.get("high", []), q.get("low", []), q.get("close", [])
+        candles = []
+        for i, t in enumerate(ts):
+            if i >= len(c) or o[i] is None or c[i] is None:
+                continue
+            candles.append([int(t), o[i], h[i], l[i], c[i], 0])
+        _cache_put(key, candles, ttl=30.0)
+        return {"status": "success", "candles": candles}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, detail=f"Public data fetch failed: {exc}") from exc
+
+
 if __name__ == "__main__":
     import uvicorn
 

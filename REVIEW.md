@@ -152,3 +152,20 @@ reliable, and realistic. Test in paper/DRY_RUN before risking real money.
   and named in the Scan Pattern result.
 - **Premium visual polish** — deeper gradient background, frosted glass panels, gradient
   wordmark, Inter typeface, refined accents. Structure unchanged.
+
+## Alerts + multi-timeframe
+
+- **Breakout alert** — when price crosses the detected key level (neckline/resistance),
+  a one-time notification fires (debounced), saying which way it broke.
+- **Multi-timeframe trend** — a badge shows the base-timeframe trend vs a 3× higher
+  timeframe (e.g., 5m vs 15m on live), and flags when they're aligned. Aligned trends
+  are a common confirmation cue — still not a guarantee.
+
+## Live chart without a broker (free data)
+
+- **Go Live now works with NO broker login.** The backend fetches real NIFTY/BANKNIFTY
+  candles from a free public source (Yahoo Finance) and the chart shows real market data.
+  Broker connection is only needed for placing orders and live option premiums.
+- Caveat: the free feed may be delayed ~15 min and can differ slightly from a broker's
+  real-time feed. For exact real-time, connect the broker (uses its candle feed instead).
+- Requires backend.py to be running (it proxies the public data). Open http://127.0.0.1:8000/.

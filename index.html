@@ -218,6 +218,7 @@
                     <div class="flex items-center gap-3">
                         <span class="text-xl font-bold font-mono text-green-400" id="index-price">0.00</span>
                         <span class="text-[10px] font-bold uppercase tracking-wide bg-slate-800 border border-slate-600 rounded px-2 py-0.5" id="trend-badge" title="Auto-detected trend/pattern (approximate)">—</span>
+                        <span class="text-[10px] font-mono bg-slate-800 border border-slate-600 rounded px-2 py-0.5" id="mtf-badge" title="Multi-timeframe trend — base vs higher timeframe">—</span>
                         <button onclick="app.scanPattern()" class="bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide transition"><i class="fa-solid fa-magnifying-glass-chart mr-1"></i>Scan Pattern</button>
                     </div>
                     <div class="flex gap-2 text-[9px] uppercase font-bold">
@@ -426,12 +427,11 @@
             return brokerage + stt + exch + sebi + stamp + gst;
         }
 
-        // Backend location. When the page is served BY the backend (recommended:
-        // open http://127.0.0.1:8000/), use that same origin — no CORS issues.
-        // If you opened the file directly (file://), fall back to localhost:8000.
-        const BACKEND_URL = (location.protocol === 'http:' || location.protocol === 'https:')
-            ? location.origin
-            : 'http://127.0.0.1:8000';
+        // Backend location. Recommended: open http://127.0.0.1:8000/ (backend serves
+        // the page → same origin). If you open it from a different server (e.g. Live
+        // Server :5500) or file://, we auto-detect the backend by probing /api/health.
+        let BACKEND_URL = 'http://127.0.0.1:8000';
+        let _backendResolved = false;
 
         // Angel One spot-index tokens for charting. Verify via /api/search if a
         // chart doesn't load (exchange/token formats can change).
@@ -727,7 +727,7 @@
             this.render();
             try { this.updateLiveDetection(); } catch(e){}
             setInterval(() => this.tick(), CONSTANTS.TICK_MS);
-            setInterval(() => { if(this.dataMode!=='LIVE' && (this.isMarketOpen() || this.practiceMode)){ this.m.newCandle(); this.c.update(this.m.data); } }, CONSTANTS.CANDLE_MS);
+            setInterval(() => { if(this.dataMode!=='LIVE' && (this.isMarketOpen() || this.practiceMode)){ this.m.newCandle(); this.c.update(this.m.data); try { this.updateLiveDetection(); } catch(e){} } }, CONSTANTS.CANDLE_MS);
             setInterval(() => { document.getElementById('clock-display').innerText = new Date().toLocaleTimeString('en-IN', {hour12:false}); this.updateMarketStatus(); }, 1000);
             this.updateMarketStatus();
         };
@@ -1014,6 +1014,22 @@
             }
         };
 
+        // Find which URL actually serves the backend (fixes 405 when the page is
+        // hosted by a static server on a different port).
+        app.resolveBackend = async function() {
+            if (_backendResolved) return;
+            const candidates = [];
+            if (location.protocol === 'http:' || location.protocol === 'https:') candidates.push(location.origin);
+            candidates.push('http://127.0.0.1:8000', 'http://localhost:8000');
+            for (const base of [...new Set(candidates)]) {
+                try {
+                    const r = await fetch(base + '/api/health', { method: 'GET' });
+                    if (r.ok) { const j = await r.json().catch(() => ({})); if (j && j.status === 'ok') { BACKEND_URL = base; _backendResolved = true; return; } }
+                } catch (e) { /* try next */ }
+            }
+            // none responded — leave default; the caller will surface a clear error
+        };
+
         // --- BROKER (Angel One) CONNECTION ---------------------------------
         // Credentials live in the backend's .env, never in the browser.
         // "Connect" just asks the backend to start a broker session.
@@ -1024,6 +1040,7 @@
         app.connectBroker = async function() {
             const btn = document.getElementById('broker-btn');
             btn.disabled = true; btn.textContent = 'Connecting…';
+            await this.resolveBackend();
             try {
                 const res = await fetch(`${BACKEND_URL}/api/login`, { method: 'POST' });
                 const data = await res.json().catch(() => ({}));
@@ -1194,6 +1211,7 @@
         app.togglePractice = function() {
             this.practiceMode = !this.practiceMode;
             this.updateMarketStatus();
+            try { this.updateLiveDetection(); } catch(e){}
             notify(this.practiceMode ? 'Practice mode on — sim runs even when market is closed.'
                                      : 'Practice mode off — sim pauses when market is closed.', 'info');
         };
@@ -1204,19 +1222,21 @@
         };
 
         app.enableLive = async function() {
-            if (!this.session.connected) { notify('Pehle "Connect Broker" karo.', 'warn'); return; }
             const btn = document.getElementById('live-toggle');
             btn.disabled = true; btn.textContent = 'Loading…';
+            await this.resolveBackend();
             const ok = await this.fetchLiveCandles();
             btn.disabled = false;
             if (!ok) { btn.textContent = 'Go Live'; return; }   // fetchLiveCandles already notified
 
             this.dataMode = 'LIVE';
             const badge = document.getElementById('data-mode-badge');
-            badge.innerHTML = '<i class="fa-solid fa-satellite-dish text-[8px] mr-1"></i>LIVE';
+            const srcTxt = this.session.connected ? 'LIVE (broker)' : 'LIVE (free data)';
+            badge.innerHTML = `<i class="fa-solid fa-satellite-dish text-[8px] mr-1"></i>${srcTxt}`;
             badge.className = 'text-green-400 font-bold';
             btn.textContent = 'Stop Live';
-            notify('Live chart on. Refreshing every 20s.', 'info');
+            notify(this.session.connected ? 'Live chart on (broker feed). Refreshing every 20s.'
+                                          : 'Live chart on (free NIFTY/BANKNIFTY data). May lag ~15 min vs broker.', 'info');
             this.liveTimer = setInterval(() => this.fetchLiveCandles(), 20000);
         };
 
@@ -1232,36 +1252,39 @@
         };
 
         app.fetchLiveCandles = async function() {
-            const idx = INDEX_CHART[this.m.cIdx];
-            if (!idx) { notify('Is index ke liye chart token nahi mila.', 'error'); return false; }
-            const pad = n => String(n).padStart(2, '0');
-            const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-            const to = new Date();
-            const from = new Date(to.getTime() - 5*24*3600*1000);   // last 5 days
+            const toSec = v => (typeof v === 'number' ? Math.floor(v) : Math.floor(new Date(v).getTime()/1000));
             try {
-                const res = await fetch(`${BACKEND_URL}/api/candles`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Session-Token': this.session.token },
-                    body: JSON.stringify({ exchange: idx.exchange, symboltoken: idx.symboltoken,
-                                           interval: 'FIVE_MINUTE', fromdate: fmt(from), todate: fmt(to) })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok || data.status !== 'success') throw new Error(data.detail || `HTTP ${res.status}`);
-                const rows = (data.candles || []);
-                if (!rows.length) throw new Error('No candles returned (market closed or bad token?)');
-                // rows: [timestamp, open, high, low, close, volume]
-                const mapped = rows.slice(-90).map(r => ({
-                    time: Math.floor(new Date(r[0]).getTime()/1000),
-                    open: +r[1], high: +r[2], low: +r[3], close: +r[4]
-                }));
+                let rows;
+                if (this.session.connected) {
+                    // Broker feed (real-time) when logged in
+                    const idx = INDEX_CHART[this.m.cIdx] || { exchange:'NSE', symboltoken:'99926000' };
+                    const pad = n => String(n).padStart(2, '0');
+                    const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    const to = new Date(), from = new Date(Date.now() - 5*24*3600*1000);
+                    const res = await fetch(`${BACKEND_URL}/api/candles`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Session-Token': this.session.token },
+                        body: JSON.stringify({ exchange: idx.exchange, symboltoken: idx.symboltoken, interval: 'FIVE_MINUTE', fromdate: fmt(from), todate: fmt(to) })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || data.status !== 'success') throw new Error(data.detail || `HTTP ${res.status}`);
+                    rows = data.candles || [];
+                } else {
+                    // Free public feed — no broker needed
+                    const res = await fetch(`${BACKEND_URL}/api/public-candles?symbol=${this.m.cIdx}&interval=5m&range=5d`);
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || data.status !== 'success') throw new Error(data.detail || `HTTP ${res.status}`);
+                    rows = data.candles || [];
+                }
+                if (!rows.length) throw new Error('No candles (market closed, or data source unreachable).');
+                const mapped = rows.slice(-90).map(r => ({ time: toSec(r[0]), open: +r[1], high: +r[2], low: +r[3], close: +r[4] }));
                 this.m.data = mapped;
                 this.c.update(this.m.data);
                 this.updateUI();
                 try { this.updateLiveDetection(); } catch(e){}
                 return true;
             } catch (e) {
-                const hint = e.message === 'Failed to fetch' ? 'backend chal raha hai?' : e.message;
-                notify('Live candles fail: ' + hint, 'error');
+                const hint = e.message === 'Failed to fetch' ? 'is backend.py running? (open http://127.0.0.1:8000/)' : e.message;
+                notify('Live chart failed: ' + hint, 'error');
                 return false;
             }
         };
@@ -1591,6 +1614,46 @@
             })).sort((a,b) => (a.time > b.time ? 1 : -1));
             this.c.setMarkers(markers);
             this.c.setLevel(r.level, r.levelLabel, '#eab308');
+
+            // --- Multi-timeframe trend (base vs 3x-aggregated higher timeframe) ---
+            const aggregate = (data, f) => {
+                const out = [];
+                for (let i = 0; i < data.length; i += f) {
+                    const ch = data.slice(i, i + f); if (!ch.length) break;
+                    out.push({ time: ch[0].time, open: ch[0].open, close: ch[ch.length-1].close,
+                        high: Math.max(...ch.map(c=>c.high)), low: Math.min(...ch.map(c=>c.low)) });
+                }
+                return out;
+            };
+            const trendOf = (c) => {
+                if (c.length < 8) return 'Flat';
+                const y = c.map(x=>x.close), n = y.length; let sx=0,sy=0,sxy=0,sxx=0;
+                for (let i=0;i<n;i++){ sx+=i; sy+=y[i]; sxy+=i*y[i]; sxx+=i*i; }
+                const slope = (n*sxy - sx*sy)/(n*sxx - sx*sx), pct = slope*n/y[y.length-1]*100;
+                return pct > 1.0 ? 'Up' : (pct < -1.0 ? 'Down' : 'Flat');
+            };
+            const base = this.m.data;
+            const t1 = trendOf(base), t3 = trendOf(aggregate(base, 3));
+            const mins = base.length > 1 ? Math.max(1, Math.round((base[base.length-1].time - base[base.length-2].time)/60)) : null;
+            const arrow = t => t==='Up'?'↑':(t==='Down'?'↓':'→');
+            const col = t => t==='Up'?'text-green-400':(t==='Down'?'text-red-400':'text-gray-400');
+            const aligned = (t1===t3 && t1!=='Flat');
+            const mtf = document.getElementById('mtf-badge');
+            if (mtf) mtf.innerHTML = `${mins?mins+'m':'TF'} <span class="${col(t1)}">${arrow(t1)}</span> · ${mins?(mins*3)+'m':'3×'} <span class="${col(t3)}">${arrow(t3)}</span> ${aligned?'<span class="text-green-400">✓aligned</span>':'<span class="text-gray-500">mixed</span>'}`;
+
+            // --- Breakout alert: notify once when price crosses the key level -------
+            const price = base.length ? base[base.length-1].close : null;
+            if (price != null && r.level != null && isFinite(r.level)) {
+                const side = price >= r.level ? 'above' : 'below';
+                if (this._lvlKey === r.levelLabel && this._lvlSide && this._lvlSide !== side) {
+                    const now = Date.now();
+                    if (now - (this._lastAlert || 0) > 20000) {
+                        notify(`Breakout: price crossed ${side} the ${r.levelLabel} (${r.level.toFixed(0)}).`, 'warn');
+                        this._lastAlert = now;
+                    }
+                }
+                this._lvlSide = side; this._lvlKey = r.levelLabel;
+            } else { this._lvlSide = null; this._lvlKey = null; }
         };
 
         app.scanPattern = function() {
